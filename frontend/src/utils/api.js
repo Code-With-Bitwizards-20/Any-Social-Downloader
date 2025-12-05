@@ -1,8 +1,21 @@
 import axios from 'axios';
 
+// Helper to ensure base URL ends with /api
+const getBaseUrl = () => {
+  const url = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  // If the URL already ends with /api, return it
+  if (url.endsWith('/api')) return url;
+  // If it ends with a slash, append api
+  if (url.endsWith('/')) return `${url}api`;
+  // Otherwise append /api
+  return `${url}/api`;
+};
+
+export const API_BASE_URL = getBaseUrl();
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: API_BASE_URL,
   timeout: 30000, // 30 seconds timeout
   headers: {
     'Content-Type': 'application/json',

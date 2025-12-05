@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { youtubeApi, facebookApi, instagramApi, tiktokApi, twitterApi } from '../utils/api';
+import { youtubeApi, facebookApi, instagramApi, tiktokApi, twitterApi, API_BASE_URL } from '../utils/api';
 import toast from 'react-hot-toast';
 
 export const useDownload = () => {
@@ -85,11 +85,11 @@ export const useDownload = () => {
         }
 
         if (format.isTranscoded && format.bitrate) {
-          downloadUrl = `/api/youtube/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/youtube/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
         } else if (format.merge && format.vItag && format.aItag) {
-          downloadUrl = `/api/youtube/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/youtube/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
         } else if (format.itag) {
-          downloadUrl = `/api/youtube/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/youtube/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
         } else {
           toast.error('No valid itag for YouTube format');
           return;
@@ -101,11 +101,11 @@ export const useDownload = () => {
         }
 
         if (format.isTranscoded && format.bitrate) {
-          downloadUrl = `/api/facebook/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/facebook/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
         } else if (format.merge && format.vItag && format.aItag) {
-          downloadUrl = `/api/facebook/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/facebook/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
         } else if (format.itag) {
-          downloadUrl = `/api/facebook/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/facebook/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
         } else {
           toast.error('No valid format for Facebook download');
           return;
@@ -117,11 +117,11 @@ export const useDownload = () => {
         }
 
         if (format.isTranscoded && format.bitrate) {
-          downloadUrl = `/api/instagram/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/instagram/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
         } else if (format.merge && format.vItag && format.aItag) {
-          downloadUrl = `/api/instagram/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/instagram/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
         } else if (format.itag) {
-          downloadUrl = `/api/instagram/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/instagram/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
         } else {
           toast.error('No valid format for Instagram download');
           return;
@@ -133,11 +133,11 @@ export const useDownload = () => {
         }
 
         if (format.isTranscoded && format.bitrate) {
-          downloadUrl = `/api/tiktok/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/tiktok/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
         } else if (format.merge && format.vItag && format.aItag) {
-          downloadUrl = `/api/tiktok/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/tiktok/merge?url=${encodeURIComponent(lastUrl)}&vItag=${encodeURIComponent(format.vItag)}&aItag=${encodeURIComponent(format.aItag)}&title=${encodedTitle}`;
         } else if (format.itag) {
-          downloadUrl = `/api/tiktok/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/tiktok/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
         } else {
           toast.error('No valid format for TikTok download');
           return;
@@ -149,9 +149,9 @@ export const useDownload = () => {
         }
 
         if (format.isTranscoded && format.bitrate) {
-          downloadUrl = `/api/twitter/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/twitter/download-audio?url=${encodeURIComponent(lastUrl)}&bitrate=${format.bitrate}&title=${encodedTitle}`;
         } else if (format.itag) {
-          downloadUrl = `/api/twitter/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
+          downloadUrl = `${API_BASE_URL}/twitter/download?url=${encodeURIComponent(lastUrl)}&itag=${encodeURIComponent(format.itag)}&title=${encodedTitle}`;
         } else {
           toast.error('No valid format for Twitter download');
           return;
