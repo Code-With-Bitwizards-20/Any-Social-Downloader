@@ -28,9 +28,15 @@ const limiter = rateLimit({
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: [/^http:\/\/localhost:\d+$/],
+  origin: [
+    /^http:\/\/localhost:\d+$/,
+    'https://anysocialdownloader.cloud',
+    'https://www.anysocialdownloader.cloud',
+    'https://api.anysocialdownloader.cloud'
+  ],
   methods: ['GET', 'POST'],
-  exposedHeaders: ['Content-Disposition']
+  exposedHeaders: ['Content-Disposition'],
+  credentials: true
 }));
 app.use(morgan('combined'));
 // Apply rate limiter only to metadata/info endpoints, not streaming routes
