@@ -13,16 +13,16 @@ const __dirname = dirname(__filename);
 
 // Resolve yt-dlp path: prefer explicit path, fallback to PATH if available
 const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
-const cookiesPath = path.resolve(__dirname, '..', 'cookies.txt');
 
+// STRATEGY: Client Spoofing (Android/iOS)
+// YouTube is less strict with mobile API clients than web clients.
+// We force yt-dlp to pretend it is the "Android" official app.
 const getAuthArgs = () => {
-  if (fs.existsSync(cookiesPath)) {
-    console.log(`[YouTube] Found cookies at: ${cookiesPath}`);
-    // Only pass cookies, let yt-dlp handle the user agent to avoid mismatches
-    return ['--cookies', cookiesPath];
-  }
-  console.warn(`[YouTube] Cookies file NOT found at: ${cookiesPath}`);
-  return [];
+    return [
+       '--extractor-args', 'youtube:player_client=android', // Pretend to be Android App
+       '--user-agent', 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
+       '--force-ipv4', // Sometimes forcing IPv4 or IPv6 helps stability
+    ];
 };
 
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
