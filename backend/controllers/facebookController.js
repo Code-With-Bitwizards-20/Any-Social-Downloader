@@ -3,7 +3,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import { pipeline } from 'stream';
 
 // Path to yt-dlp executable
-const YT_DLP_PATH = 'C:/Users/ACCER/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe';
+const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
 // Utility function to create safe filenames (Windows-safe, similar to YouTube controller)
 const safeFilename = (title, suffix = '', ext = 'mp4') => {

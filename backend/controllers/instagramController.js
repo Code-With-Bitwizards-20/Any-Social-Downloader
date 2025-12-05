@@ -4,7 +4,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import axios from 'axios';
 
 // Path to yt-dlp executable
-const YT_DLP_PATH = 'C:/Users/ACCER/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe';
+const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {

@@ -3,7 +3,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import { pipeline } from 'stream';
 
 // Resolve yt-dlp path: prefer explicit path, fallback to PATH if available
-const ytDlpPath = 'C:/Users/ACCER/AppData/Roaming/Python/Python313/Scripts/yt-dlp.exe';
+const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
 
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const raw = (title || 'video').toString();
