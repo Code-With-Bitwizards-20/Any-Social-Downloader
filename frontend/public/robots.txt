@@ -2,7 +2,7 @@ User-agent: *
 Allow: /
 
 # Sitemaps
-Sitemap: https://anysocialdownloader.com/sitemap.xml
+Sitemap: https://anysocialdownloader.cloud/sitemap.xml
 
 # Crawl-delay (optional)
 Crawl-delay: 1

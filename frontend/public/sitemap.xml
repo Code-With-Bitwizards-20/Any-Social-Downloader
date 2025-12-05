@@ -3,7 +3,7 @@
 
   <!-- Main Page -->
   <url>
-    <loc>https://anysocialdownloader.com/</loc>
+    <loc>https://anysocialdownloader.cloud/</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
@@ -11,31 +11,31 @@
 
   <!-- Downloader Pages -->
   <url>
-    <loc>https://anysocialdownloader.com/youtube</loc>
+    <loc>https://anysocialdownloader.cloud/youtube</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/facebook</loc>
+    <loc>https://anysocialdownloader.cloud/facebook</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.90</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/instagram</loc>
+    <loc>https://anysocialdownloader.cloud/instagram</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.90</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/tiktok</loc>
+    <loc>https://anysocialdownloader.cloud/tiktok</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.90</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/twitter</loc>
+    <loc>https://anysocialdownloader.cloud/twitter</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.90</priority>
@@ -43,25 +43,25 @@
 
   <!-- Static Pages -->
   <url>
-    <loc>https://anysocialdownloader.com/about</loc>
+    <loc>https://anysocialdownloader.cloud/about</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/contact</loc>
+    <loc>https://anysocialdownloader.cloud/contact</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/terms</loc>
+    <loc>https://anysocialdownloader.cloud/terms</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
-    <loc>https://anysocialdownloader.com/privacy</loc>
+    <loc>https://anysocialdownloader.cloud/privacy</loc>
     <lastmod>2024-01-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>

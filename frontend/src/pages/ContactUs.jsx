@@ -40,7 +40,7 @@ const ContactUs = () => {
     import.meta.env.VITE_EMAILJS_PRIVATE_KEY ||
     "uignpGFBs5XFStG1p";
   const SITE_URL =
-    import.meta.env.VITE_SITE_URL || "https://www.anysocialdownloader.com";
+    import.meta.env.VITE_SITE_URL || "https://www.anysocialdownloader.";
 
   const containerVariants = {
     hidden: { opacity: 0 },

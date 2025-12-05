@@ -19,7 +19,7 @@ const SEO = ({
     "video downloader, YouTube downloader, Facebook video download, Instagram video downloader, TikTok downloader, Twitter video download, MP3 converter, HD video download, free video downloader Code With Bitwizards";
   const defaultImage = "/og-image.png"; // Make sure this image exists in your `public` folder
 
-  const siteUrl = "https://anysocialdownloader.com";
+  const siteUrl = "https://anysocialdownloader.cloud";
 
   const seoTitle = title ? `${title} | Any Social Downloader` : defaultTitle;
   const seoDescription = description || defaultDescription;
