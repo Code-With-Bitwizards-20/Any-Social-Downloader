@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" class="smooth-scroll">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- Preconnect to external domains for better performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://img.youtube.com">
+
+  <!-- Primary Meta Tags -->
+  <title>Any Social Downloader - Download Videos & Audio from YouTube, Facebook, Instagram & More</title>
+  <meta name="title" content="Any Social Downloader - Download Videos & Audio from YouTube, Facebook, Instagram & More">
+  <meta name="description"
+    content="Download videos and audio from YouTube, Facebook, Instagram, TikTok, and Twitter easily and for free. Fast, secure, and no file size limits.">
+
+  <meta name="keywords"
+    content="video downloader, YouTube downloader, Facebook video download, Instagram video downloader, TikTok downloader, Twitter video download, MP3 converter, HD video download, free video downloader Code With Bitwizards">
+
+  <meta property="twitter:image" content="/og-image.png">
+
+  <!-- Favicon Icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
+  <link rel="shortcut icon" href="/favicon/favicon.ico" />
+  <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
+  <!-- PWA Manifest -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="/favicon/web-app-manifest-192x192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="/favicon/web-app-manifest-512x512.png" />
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- Performance optimizations -->
+  <meta name="theme-color" content="#3B82F6">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Any Social Downloader">
+
+  <!-- Preload critical resources -->
+  <link rel="preload" href="/src/main.jsx" as="script" crossorigin>
+</head>
+
+<body class="antialiased">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => {
+            // Optional: take control faster after update
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          })
+          .catch(err => console.error('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+
+</html>

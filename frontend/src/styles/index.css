@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom styles */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
+    monospace;
+}
+
+/* Custom utility classes */
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent;
+  }
+
+  .card-hover {
+    @apply transform transition-all duration-300 hover:scale-105 hover:shadow-2xl;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Smooth scrolling */
+  .smooth-scroll {
+    scroll-behavior: smooth;
+  }
+
+  /* Hardware acceleration */
+  .gpu-acceleration {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+}
+
+/* Responsive tweaks for small screens (315px–600px) */
+@media (min-width: 315px) and (max-width: 600px) {
+  /* Tabs: stack buttons, allow wrapping, and add gap */
+  .flex.space-x-2 {
+    flex-wrap: wrap;
+    gap: 0.5rem; /* 8px */
+  }
+  .flex.space-x-2 > button,
+  .flex.space-x-2 > a,
+  .flex.space-x-2 > [role="button"] {
+    width: 100%;
+  }
+
+  /* Format cards: reduce padding */
+  .bg-white\/80.backdrop-blur-sm.rounded-2xl.p-6.shadow-lg.border.border-gray-200 {
+    padding: 1rem !important; /* 16px */
+  }
+
+  /* Format card content: stack content vertically and stretch */
+  .bg-white\/80.backdrop-blur-sm.rounded-2xl.p-6.shadow-lg.border.border-gray-200
+    > .flex.items-center.justify-between {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem; /* 16px */
+  }
+
+  /* Download button: full width on small screens */
+  .bg-white\/80.backdrop-blur-sm.rounded-2xl.p-6.shadow-lg.border.border-gray-200
+    button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Icon size: slightly smaller */
+  .bg-white\/80.backdrop-blur-sm.rounded-2xl.p-6.shadow-lg.border.border-gray-200
+    .w-12.h-12 {
+    width: 2.5rem; /* 40px */
+    height: 2.5rem; /* 40px */
+  }
+
+  /* Meta info row: allow wrapping */
+  .bg-white\/80.backdrop-blur-sm.rounded-2xl.p-6.shadow-lg.border.border-gray-200
+    .flex.items-center.space-x-4.text-sm.text-gray-600 {
+    flex-wrap: wrap;
+    gap: 0.5rem; /* 8px */
+  }
+}
