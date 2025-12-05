@@ -5,6 +5,12 @@ import { pipeline } from 'stream';
 import fs from 'fs';
 import path from 'path';
 
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 // Resolve yt-dlp path: prefer explicit path, fallback to PATH if available
 const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
 const cookiesPath = path.resolve(__dirname, '..', 'cookies.txt');
