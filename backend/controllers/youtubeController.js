@@ -7,12 +7,15 @@ import path from 'path';
 
 // Resolve yt-dlp path: prefer explicit path, fallback to PATH if available
 const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
-const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+const cookiesPath = path.resolve(__dirname, '..', 'cookies.txt');
 
 const getAuthArgs = () => {
   if (fs.existsSync(cookiesPath)) {
-    return ['--cookies', cookiesPath, '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'];
+    console.log(`[YouTube] Found cookies at: ${cookiesPath}`);
+    // Only pass cookies, let yt-dlp handle the user agent to avoid mismatches
+    return ['--cookies', cookiesPath];
   }
+  console.warn(`[YouTube] Cookies file NOT found at: ${cookiesPath}`);
   return [];
 };
 
