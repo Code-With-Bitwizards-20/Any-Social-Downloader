@@ -339,53 +339,76 @@ export const mergeFacebookVideoAudio = (req, res) => {
     // Set response headers for download so browser starts immediately
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Transfer-Encoding', 'chunked'); // Use chunked for streaming
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Accept-Ranges', 'none');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable proxy buffering
 
-    // Use yt-dlp to get merged streams in Matroska format (better for AV1)
-    const ytdlpProcess = spawn(YT_DLP_PATH, [
+    if (res.flushHeaders) res.flushHeaders();
+
+    // Spawn TWO yt-dlp processes: one for video, one for audio
+    // This prevents "ffmpeg exited with code -11" (segfault) by avoiding yt-dlp's internal merge
+    
+    const commonArgs = [
       url,
-      '--format', `${vItag}+${aItag}`,
-      '--ffmpeg-location', ffmpegStatic,
-      '--merge-output-format', 'mkv', // Use Matroska format which handles AV1 better
       '--output', '-',
       '--no-progress',
-      '--quiet'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      '--quiet',
+      '--retries', '10',
+      '--fragment-retries', '10',
+      '--buffer-size', '1024K'
+    ];
 
-    // Use FFmpeg to convert Matroska to streamable MP4 with both video and audio
+    // Video Process
+    const videoArgs = [...commonArgs, '-f', vItag];
+    const videoProcess = spawn(YT_DLP_PATH, videoArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+
+    // Audio Process
+    const audioArgs = [...commonArgs, '-f', aItag];
+    const audioProcess = spawn(YT_DLP_PATH, audioArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+
+    // FFmpeg Process: Inputs from pipe:3 (Video) and pipe:4 (Audio)
     const ffmpegProcess = spawn(ffmpegStatic, [
       '-hide_banner', '-loglevel', 'error',
-      '-i', 'pipe:0', // Input from yt-dlp (MKV format)
-      '-c:v', 'copy', // Copy video stream without re-encoding 
-      '-c:a', 'copy', // Copy audio stream without re-encoding
-      '-f', 'mp4', // Force MP4 output format
-      '-movflags', 'frag_keyframe+empty_moov', // Make it streamable
-      '-avoid_negative_ts', 'make_zero', // Fix timestamp issues
+      '-i', 'pipe:3', // Video Input
+      '-i', 'pipe:4', // Audio Input
+      '-map', '0:v',
+      '-map', '1:a',
+      '-c:v', 'copy', // Copy video (no transcoding = fast)
+      '-c:a', 'aac',  // Transcode audio to AAC (safe for MP4)
+      '-f', 'mp4',
+      '-movflags', 'frag_keyframe+empty_moov',
+      '-avoid_negative_ts', 'make_zero',
       'pipe:1' // Output to stdout
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    ], { 
+      stdio: [
+        'ignore', 'pipe', 'pipe', 
+        'pipe', // pipe:3 (video input)
+        'pipe'  // pipe:4 (audio input)
+      ] 
+    });
 
     const cleanup = () => {
-      try { ytdlpProcess.stdout.destroy(); } catch {}
-      try { ytdlpProcess.stderr.destroy(); } catch {}
+      try { videoProcess.stdout.destroy(); } catch {}
+      try { videoProcess.kill('SIGKILL'); } catch {}
+      try { audioProcess.stdout.destroy(); } catch {}
+      try { audioProcess.kill('SIGKILL'); } catch {}
       try { ffmpegProcess.stdin.destroy(); } catch {}
       try { ffmpegProcess.stdout.destroy(); } catch {}
       try { ffmpegProcess.stderr.destroy(); } catch {}
-      try { ytdlpProcess.kill('SIGKILL'); } catch {}
       try { ffmpegProcess.kill('SIGKILL'); } catch {}
+      try { if (!res.writableEnded && !res.destroyed) res.destroy(); } catch {}
     };
 
-    onClientDisconnect(req, res, () => {
-      cleanup();
-      try { if (!res.writableEnded && !res.destroyed) res.end(); } catch {}
-    });
+    onClientDisconnect(req, res, cleanup);
 
-    // Pipe yt-dlp MKV output through FFmpeg to get proper MP4
-    safePipe(ytdlpProcess.stdout, ffmpegProcess.stdin, (err) => {
-      if (err) console.error('Pipeline error (Facebook yt-dlp -> ffmpeg):', err.message);
-    });
+    // Pipe Video -> FFmpeg pipe:3
+    videoProcess.stdout.pipe(ffmpegProcess.stdio[3]);
     
-    // Pipe final MP4 output to response
+    // Pipe Audio -> FFmpeg pipe:4
+    audioProcess.stdout.pipe(ffmpegProcess.stdio[4]);
+
+    // Pipe FFmpeg -> Response
     safePipe(ffmpegProcess.stdout, res, (err) => {
       if (err && !res.headersSent && !res.writableEnded) {
         console.error('Pipeline error (Facebook ffmpeg -> res):', err.message);
@@ -393,56 +416,36 @@ export const mergeFacebookVideoAudio = (req, res) => {
       cleanup();
     });
 
-    // Error handling for yt-dlp
-    ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
-    });
+    // Error Handling
+    const handleProcError = (proc, name) => {
+      proc.on('error', (err) => {
+        console.error(`${name} process error:`, err);
+        cleanup();
+        if (!res.headersSent) res.status(500).json({ error: `${name} failed` });
+      });
+      // We don't fail on non-zero exit immediately as one stream might finish earlier
+    };
 
-    ytdlpProcess.on('error', (error) => {
-      console.error('yt-dlp process error:', error);
-      ffmpegProcess.kill();
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Video extraction failed' });
-      }
-    });
+    handleProcError(videoProcess, 'Video Download');
+    handleProcError(audioProcess, 'Audio Download');
 
-    ytdlpProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('yt-dlp process exited with code:', code);
-        ffmpegProcess.kill();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Video extraction failed' });
-        }
-      }
-    });
-
-    // Error handling for FFmpeg
     ffmpegProcess.stderr.on('data', (data) => {
       console.error('FFmpeg stderr:', data.toString());
     });
 
-    ffmpegProcess.on('error', (error) => {
-      console.error('FFmpeg process error:', error);
-      ytdlpProcess.kill();
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Video conversion failed' });
-      }
+    ffmpegProcess.on('error', (err) => {
+      console.error('FFmpeg process error:', err);
+      cleanup();
+      if (!res.headersSent) res.status(500).json({ error: 'Conversion failed' });
     });
 
     ffmpegProcess.on('close', (code) => {
-      if (code === 0) {
-        console.log('Facebook MP4 conversion completed successfully');
+      if (code !== 0) {
+        console.error(`FFmpeg exited with code ${code}`);
       } else {
-        console.error('FFmpeg process exited with code:', code);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Video conversion failed' });
-        }
+        console.log('Facebook merge completed successfully');
       }
-    });
-
-    req.on('close', () => {
-      ytdlpProcess.kill();
-      ffmpegProcess.kill();
+      cleanup();
     });
 
   } catch (error) {
