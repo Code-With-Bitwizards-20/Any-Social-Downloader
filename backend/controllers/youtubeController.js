@@ -2,8 +2,19 @@ import { spawn } from 'child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import { pipeline } from 'stream';
 
+import fs from 'fs';
+import path from 'path';
+
 // Resolve yt-dlp path: prefer explicit path, fallback to PATH if available
 const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
+const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+
+const getAuthArgs = () => {
+  if (fs.existsSync(cookiesPath)) {
+    return ['--cookies', cookiesPath, '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'];
+  }
+  return [];
+};
 
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const raw = (title || 'video').toString();
@@ -79,6 +90,7 @@ export const getVideoInfo = async (req, res) => {
     const ytDlpProcess = spawn(ytDlpPath, [
       '--dump-single-json',
       '--no-warnings',
+      ...getAuthArgs(),
       url
     ]);
 
@@ -279,7 +291,7 @@ const downloadWithYtDlp = (req, res, url, args, title, ext, qualityLabel) => {
       ytdlpArgs.push('-o', '-');
     }
 
-    const ytdlpProc = spawn(ytDlpPath, [url, ...ytdlpArgs], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const ytdlpProc = spawn(ytDlpPath, [url, ...ytdlpArgs, ...getAuthArgs()], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     const cleanup = () => {
       try { ytdlpProc.stdout.destroy(); } catch {}
@@ -369,7 +381,8 @@ export const mergeDownloadGet = (req, res) => {
       '--retries', '10',
       '--fragment-retries', '10',
       '--buffer-size', '1024K',
-      '-N', '4'
+      '-N', '4',
+      ...getAuthArgs()
     ];
 
     const videoArgs = [...commonArgs, '-f', vItag];
@@ -514,7 +527,8 @@ export const downloadAudioGet = async (req, res) => {
       '--retries', '10',
       '--fragment-retries', '10',
       '--buffer-size', '1024K',
-      '-N', '4'
+      '-N', '4',
+      ...getAuthArgs()
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Validate bitrate
