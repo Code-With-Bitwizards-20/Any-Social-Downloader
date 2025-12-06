@@ -282,12 +282,16 @@ export const getInstagramMediaInfo = async (req, res) => {
 // Add alias for consistency with other controllers
 export const getInstagramInfo = getInstagramMediaInfo;
 
-export const downloadInstagramVideo = (req, res) => {
+export const downloadInstagramVideo = async (req, res) => {
   try {
-    const { url, itag, format_id, title } = req.method === 'POST' ? req.body : req.query;
+    const { url, itag, format_id, title, bitrate } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
     
-    console.log('Instagram download request:', { url, itag: selectedFormatId, title });
+    // Check path to determine type (audio vs video)
+    const isAudioRoute = req.path && req.path.includes('audio');
+    const isAudio = isAudioRoute || bitrate || (['96', '128', '160', '192', '256', '320'].includes(String(selectedFormatId)));
+
+    console.log(`Instagram download request: URL=${url}, Format=${selectedFormatId}, isAudio=${isAudio}`);
     
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
@@ -371,7 +375,6 @@ export const mergeInstagramVideoAudio = (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'video/mp4');
 
-    // Use yt-dlp to get merged streams in Matroska format (better for AV1)
     // Use yt-dlp to get merged streams in Matroska format (better for AV1)
     const ytdlpArgs = [
       url,
