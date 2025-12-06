@@ -12,7 +12,7 @@ router.get('/download', downloadFacebookVideo);
 router.post('/download', validateUrl, downloadFacebookVideo);
 
 // Download Facebook audio as MP3
-router.get('/download-audio', downloadFacebookAudio);
+router.get('/download-audio', downloadFacebookVideo);
 
 // Merge Facebook video and audio streams
 router.get('/merge', mergeFacebookVideoAudio);

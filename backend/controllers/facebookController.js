@@ -411,12 +411,15 @@ export const mergeFacebookVideoAudio = (req, res) => {
     const commonArgs = [
       url,
       '--output', '-',
-      '--cookies', COOKIES_PATH,    // Use Facebook cookies
+      // '--cookies', COOKIES_PATH,    // Removed to fix 0KB public video issues
+      '--no-check-certificates',
+      '--no-warnings',
+      '--no-playlist',
       '--no-progress',
       '--quiet',
       '--retries', '10',
       '--fragment-retries', '10',
-      '--buffer-size', '1024K'
+      '--buffer-size', '16M'
     ];
 
     // Video Process
