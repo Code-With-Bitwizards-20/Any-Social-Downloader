@@ -1,8 +1,7 @@
-import { spawn } from 'child_process';
-import ffmpegStatic from 'ffmpeg-static';
+import axios from 'axios';
 
-// yt-dlp path (will be installed on VPS)
-const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
+// Cobalt.tools API for YouTube downloads
+const COBALT_API = 'https://api.cobalt.tools/api/json';
 
 // Utility: Extract video ID from YouTube URL
 const getVideoId = (url) => {
@@ -36,7 +35,7 @@ const safeFilename = (title, suffix = '', ext = 'mp4') => {
   return `${base}${sfx}.${ext}`;
 };
 
-// Get Video Information using yt-dlp
+// Get Video Information
 export const getVideoInfo = async (req, res) => {
   try {
     const { url } = req.body;
@@ -58,104 +57,69 @@ export const getVideoInfo = async (req, res) => {
 
     console.log(`Fetching YouTube video info for ID: ${videoId}`);
 
-    // Use yt-dlp to get video information
-    const ytDlpProcess = spawn(ytDlpPath, [
-      '--dump-single-json',
-      '--no-warnings',
-      '--no-playlist',
-      url
-    ]);
-
-    let jsonOutput = '';
-    let errorOutput = '';
-
-    ytDlpProcess.stdout.on('data', (data) => {
-      jsonOutput += data.toString();
+    // Use Cobalt API to get video info
+    const response = await axios.post(COBALT_API, {
+      url: url,
+      vQuality: 'max'
+    }, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
     });
 
-    ytDlpProcess.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-    });
+    const data = response.data;
 
-    ytDlpProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('yt-dlp error:', errorOutput);
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Failed to fetch video information',
-          details: errorOutput
-        });
-      }
+    if (data.status === 'error') {
+      console.error('Cobalt API error:', data.text);
+      return res.status(400).json({
+        success: false,
+        error: data.text || 'Failed to fetch video information'
+      });
+    }
 
-      try {
-        const data = JSON.parse(jsonOutput);
+    // Build video info from basic data
+    const videoInfo = {
+      title: `YouTube Video ${videoId}`,
+      author: 'Unknown',
+      lengthSeconds: 0,
+      viewCount: 0,
+      publishDate: null,
+      description: '',
+      thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`
+    };
 
-        // Build video info
-        const videoInfo = {
-          title: data.title || 'Unknown Title',
-          author: data.uploader || data.channel || 'Unknown',
-          lengthSeconds: data.duration || 0,
-          viewCount: data.view_count || 0,
-          publishDate: data.upload_date || null,
-          description: data.description || '',
-          thumbnail: data.thumbnail || ''
-        };
+    // Standard video qualities
+    const videoFormats = [
+      { itag: '2160', qualityLabel: '2160p', quality: 2160, hasAudio: true },
+      { itag: '1440', qualityLabel: '1440p', quality: 1440, hasAudio: true },
+      { itag: '1080', qualityLabel: '1080p', quality: 1080, hasAudio: true },
+      { itag: '720', qualityLabel: '720p', quality: 720, hasAudio: true },
+      { itag: '480', qualityLabel: '480p', quality: 480, hasAudio: true },
+      { itag: '360', qualityLabel: '360p', quality: 360, hasAudio: true },
+      { itag: '240', qualityLabel: '240p', quality: 240, hasAudio: true },
+      { itag: '144', qualityLabel: '144p', quality: 144, hasAudio: true }
+    ];
 
-        // Process video formats
-        const videoFormats = [];
-        if (data.formats && Array.isArray(data.formats)) {
-          data.formats.forEach(format => {
-            // Only include formats with video
-            if (format.vcodec && format.vcodec !== 'none') {
-              const height = format.height || 0;
-              const qualityLabel = height ? `${height}p` : 'unknown';
-              
-              videoFormats.push({
-                itag: format.format_id,
-                qualityLabel: qualityLabel,
-                quality: height,
-                hasAudio: format.acodec && format.acodec !== 'none',
-                url: format.url || null,
-                mimeType: format.ext || 'mp4',
-                contentLength: format.filesize || null,
-                width: format.width || null,
-                height: height,
-                fps: format.fps || null
-              });
-            }
-          });
-        }
+    // Audio formats
+    const audioFormats = [
+      { bitrate: 320 },
+      { bitrate: 256 },
+      { bitrate: 192 },
+      { bitrate: 160 },
+      { bitrate: 128 },
+      { bitrate: 96 }
+    ];
 
-        // Sort by quality descending
-        videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
+    console.log(`Video info fetched successfully for ${videoId}`);
 
-        // Audio formats (standard bitrates)
-        const audioFormats = [
-          { bitrate: 320 },
-          { bitrate: 256 },
-          { bitrate: 192 },
-          { bitrate: 160 },
-          { bitrate: 128 },
-          { bitrate: 96 }
-        ];
-
-        console.log(`Found ${videoFormats.length} video formats and ${audioFormats.length} audio options`);
-
-        res.status(200).json({
-          success: true,
-          videoInfo,
-          formats: {
-            video: videoFormats,
-            audio: audioFormats
-          }
-        });
-
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Failed to parse video information' 
-        });
+    res.status(200).json({
+      success: true,
+      videoInfo,
+      formats: {
+        video: videoFormats,
+        audio: audioFormats
       }
     });
 
@@ -163,7 +127,8 @@ export const getVideoInfo = async (req, res) => {
     console.error('Get Info Error:', error.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to fetch video information'
+      error: 'Failed to fetch video information',
+      details: error.message
     });
   }
 };
@@ -178,49 +143,43 @@ export const downloadVideo = async (req, res) => {
     }
 
     const videoTitle = title || 'video';
-    const filename = safeFilename(videoTitle, '', 'mp4');
+    const quality = itag || '720';
+    const filename = safeFilename(videoTitle, quality, 'mp4');
 
     console.log(`Downloading video: ${filename}`);
 
-    // Set response headers
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'video/mp4');
-
-    // Use yt-dlp to download
-    const formatArg = itag ? `-f ${itag}` : '-f best';
-    const ytDlpArgs = [
-      ...formatArg.split(' '),
-      '--no-warnings',
-      '--no-playlist',
-      '-o', '-',  // Output to stdout
-      videoUrl
-    ];
-
-    const ytDlpProcess = spawn(ytDlpPath, ytDlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    ytDlpProcess.stdout.pipe(res);
-
-    ytDlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+    // Request download from Cobalt
+    const response = await axios.post(COBALT_API, {
+      url: videoUrl,
+      vQuality: quality,
+      filenamePattern: 'basic',
+      isAudioOnly: false
+    }, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
     });
 
-    ytDlpProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).json({ error: 'Download failed' });
-      }
-    });
+    const data = response.data;
 
-    ytDlpProcess.on('error', (error) => {
-      console.error('yt-dlp process error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Download failed' });
-      }
-    });
+    if (data.status === 'error') {
+      return res.status(400).json({ error: data.text || 'Download failed' });
+    }
+
+    // Redirect to download URL
+    if (data.url) {
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.redirect(data.url);
+    }
+
+    return res.status(404).json({ error: 'Download URL not found' });
 
   } catch (error) {
-    console.error('Download Error:', error);
+    console.error('Download Error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Download failed' });
+      res.status(500).json({ error: 'Download failed', details: error.message });
     }
   }
 };
@@ -253,45 +212,43 @@ export const downloadAudioGet = async (req, res) => {
 
     console.log(`Downloading audio: ${filename} at ${targetBitrate}kbps`);
 
-    // Set response headers
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'audio/mpeg');
-
-    // Use yt-dlp to extract audio
-    const ytDlpProcess = spawn(ytDlpPath, [
-      '-f', 'bestaudio',
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '--audio-quality', `${targetBitrate}K`,
-      '--no-warnings',
-      '--no-playlist',
-      '-o', '-',  // Output to stdout
-      videoUrl
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    ytDlpProcess.stdout.pipe(res);
-
-    ytDlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+    // Request audio download from Cobalt
+    const response = await axios.post(COBALT_API, {
+      url: videoUrl,
+      isAudioOnly: true,
+      aFormat: 'mp3',
+      filenamePattern: 'basic'
+    }, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
     });
 
-    ytDlpProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).json({ error: 'Audio download failed' });
-      }
-    });
+    const data = response.data;
 
-    ytDlpProcess.on('error', (error) => {
-      console.error('yt-dlp process error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Audio download failed' });
-      }
-    });
+    if (data.status === 'error') {
+      return res.status(400).json({ 
+        error: data.text || 'Audio download failed' 
+      });
+    }
+
+    // Redirect to download URL
+    if (data.url) {
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.redirect(data.url);
+    }
+
+    return res.status(404).json({ error: 'Audio download URL not found' });
 
   } catch (error) {
-    console.error('Audio Download Error:', error);
+    console.error('Audio Download Error:', error.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Audio download failed' });
+      res.status(500).json({ 
+        error: 'Audio download failed',
+        details: error.message
+      });
     }
   }
 };
