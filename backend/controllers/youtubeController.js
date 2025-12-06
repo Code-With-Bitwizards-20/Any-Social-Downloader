@@ -92,6 +92,15 @@ export const getVideoInfo = async (req, res) => {
 
     const data = response.data;
 
+    // Check for API errors
+    if (data.errorId || data.error) {
+      console.error('RapidAPI returned error:', data);
+      return res.status(404).json({
+        success: false,
+        error: data.reason || data.message || 'Video not found or unavailable'
+      });
+    }
+
     if (!data || !data.title) {
       return res.status(404).json({
         success: false,
