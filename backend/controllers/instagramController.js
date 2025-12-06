@@ -6,6 +6,9 @@ import axios from 'axios';
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
+// Path to Instagram cookies file
+const COOKIES_PATH = './cookies-ig/cookies.txt';
+
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const base = (title || 'video')
@@ -25,6 +28,7 @@ export const getInstagramMediaInfo = async (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       '--dump-single-json',
       '--no-warnings',
+      '--cookies', COOKIES_PATH,
       url
     ]);
 
@@ -268,6 +272,11 @@ export const downloadInstagramVideo = (req, res) => {
 
     const args = [
       url,
+      '--cookies', COOKIES_PATH,
+      '--buffer-size', '32M',
+      '--http-chunk-size', '20M',
+      '--concurrent-fragments', '10',
+      '--no-check-certificates',
       '--output', '-'
     ];
 

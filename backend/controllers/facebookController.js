@@ -279,11 +279,14 @@ export const downloadFacebookVideo = (req, res) => {
       url,
       '--output', '-',
       '--cookies', COOKIES_PATH,        // Use Facebook cookies
-      '--buffer-size', '16M',           // Large buffer for faster downloads
-      '--http-chunk-size', '10M',       // Download in large chunks
-      '--concurrent-fragments', '5',     // Download multiple fragments simultaneously
-      '--retries', '10',                 // More retries for reliability
-      '--fragment-retries', '10'
+      '--buffer-size', '32M',           // Massive buffer for max speed
+      '--http-chunk-size', '20M',       // Larger chunks = fewer requests
+      '--concurrent-fragments', '10',    // Download 10 fragments at once
+      '--retries', '10',
+      '--fragment-retries', '10',
+      '--no-check-certificates',        // Skip cert validation for speed
+      '--no-warnings',
+      '--throttled-rate', '100K'        // Only throttle below 100KB/s
     ];
 
     if (selectedFormatId) {
@@ -506,8 +509,9 @@ export const downloadFacebookAudio = (req, res) => {
       '-f', 'bestaudio',      // Get best audio quality
       '-o', '-',              // Output to stdout
       '--cookies', COOKIES_PATH,  // Use Facebook cookies
-      '--buffer-size', '16M', // Large buffer for speed
-      '--http-chunk-size', '10M',
+      '--buffer-size', '32M', // Massive buffer for speed
+      '--http-chunk-size', '20M',
+      '--no-check-certificates',
       '--no-progress',
       '--quiet'
     ], { stdio: ['ignore', 'pipe', 'pipe'] });

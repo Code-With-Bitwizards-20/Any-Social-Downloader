@@ -5,6 +5,9 @@ import ffmpegStatic from 'ffmpeg-static';
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
+// Path to TikTok cookies file  
+const COOKIES_PATH = './cookies-tk/cookies.txt';
+
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const base = (title || 'video')
@@ -24,6 +27,7 @@ export const getTikTokVideoInfo = async (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       '--dump-single-json',
       '--no-warnings',
+      '--cookies', COOKIES_PATH,
       url
     ]);
 
@@ -247,6 +251,7 @@ export const downloadTikTokVideo = (req, res) => {
 
     const args = [
       url,
+      '--cookies', COOKIES_PATH,
       '--output', '-'
     ];
 

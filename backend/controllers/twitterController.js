@@ -6,6 +6,9 @@ import * as cheerio from 'cheerio';
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
+// Path to Twitter cookies file
+const COOKIES_PATH = './cookies-tw/cookies.txt';
+
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const base = (title || 'video')
