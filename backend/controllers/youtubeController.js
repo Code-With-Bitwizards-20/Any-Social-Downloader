@@ -102,13 +102,25 @@ export const getVideoInfo = async (req, res) => {
       try {
         const metadata = JSON.parse(jsonOutput);
 
+        // Helper function to parse upload date (YYYYMMDD to YYYY-MM-DD)
+        const parseUploadDate = (dateString) => {
+          if (!dateString) return null;
+          if (typeof dateString === 'string' && dateString.length === 8 && /^\d{8}$/.test(dateString)) {
+            const year = dateString.substring(0, 4);
+            const month = dateString.substring(4, 6);
+            const day = dateString.substring(6, 8);
+            return `${year}-${month}-${day}`;
+          }
+          return dateString;
+        };
+
         // Build video info
         const videoInfo = {
           title: metadata.title || 'Unknown Title',
           author: metadata.uploader || metadata.channel || 'Unknown',
           lengthSeconds: metadata.duration || 0,
           viewCount: metadata.view_count || 0,
-          publishDate: metadata.upload_date || null,
+          publishDate: parseUploadDate(metadata.upload_date),
           description: metadata.description || '',
           thumbnail: metadata.thumbnail || ''
         };
@@ -144,7 +156,8 @@ export const getVideoInfo = async (req, res) => {
                   width: format.width || null,
                   height: height,
                   fps: format.fps || null,
-                  tbr: format.tbr || 0
+                  tbr: format.tbr || 0,
+                  contentLength: format.filesize || format.filesize_approx || null
                 });
               }
             }
@@ -232,6 +245,8 @@ export const downloadVideo = async (req, res) => {
 
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Transfer-Encoding', 'chunked'); // Enable progress tracking
+    res.setHeader('Cache-Control', 'no-cache');
 
     // Handle different format types
     let formatArg;
