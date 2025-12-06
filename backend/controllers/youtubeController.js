@@ -110,12 +110,12 @@ export const getVideoInfo = async (req, res) => {
       thumbnail: data.thumbnail || data.thumbnails?.[0]?.url || ''
     };
 
-    // Process video formats - RapidAPI returns them in different structure
+    // Process video formats - RapidAPI returns them in data.links structure
     const videoFormats = [];
     const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p'];
     
-    // Check both 'videos' and 'links' fields for video URLs
-    const videosList = data.videos || data.links || [];
+    // Check data.links.videos for video URLs  
+    const videosList = data.links?.videos || data.videos || [];
     
     if (videosList && Array.isArray(videosList) && videosList.length > 0) {
       videosList.forEach(video => {
@@ -150,9 +150,9 @@ export const getVideoInfo = async (req, res) => {
     // Sort by quality descending
     videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
 
-    // Process audio formats
+    // Process audio formats - check data.links.audios
     const audioFormats = [];
-    const audiosList = data.audios || data.audioLinks || [];
+    const audiosList = data.links?.audios || data.audios || [];
     
     if (audiosList && Array.isArray(audiosList) && audiosList.length > 0) {
       audiosList.forEach(audio => {
@@ -251,14 +251,16 @@ export const downloadVideo = async (req, res) => {
 
     // Find requested format or best quality
     let downloadUrl;
-    if (itag && data.videos) {
-      const format = data.videos.find(v => v.itag === itag || v.url === itag);
+    const videosList = data.links?.videos || data.videos || [];
+    
+    if (itag && videosList.length > 0) {
+      const format = videosList.find(v => v.itag == itag || v.url === itag);
       downloadUrl = format?.url;
     }
 
-    if (!downloadUrl && data.videos && data.videos.length > 0) {
+    if (!downloadUrl && videosList.length > 0) {
       // Get highest quality
-      const sorted = data.videos.sort((a, b) => 
+      const sorted = videosList.sort((a, b) => 
         (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0)
       );
       downloadUrl = sorted[0].url;
@@ -338,8 +340,8 @@ export const downloadAudioGet = async (req, res) => {
 
     let downloadUrl;
 
-    // Check both 'audios' and 'audioLinks' fields
-    const audiosList = data.audios || data.audioLinks || [];
+    // Check data.links.audios for audio URLs
+    const audiosList = data.links?.audios || data.audios || [];
     
     console.log(`Found ${audiosList.length} audio formats in API response`);
 
@@ -353,14 +355,8 @@ export const downloadAudioGet = async (req, res) => {
       downloadUrl = sorted[0]?.url;
     }
 
-    // Fallback: try to get ANY audio URL from the response
-    if (!downloadUrl && data.links) {
-      const audioLink = data.links.find(link => link.type?.includes('audio') || link.format?.includes('audio'));
-      downloadUrl = audioLink?.url;
-    }
-
     if (!downloadUrl) {
-      console.error('No audio URL found in API response. Available data:', JSON.stringify(data, null, 2));
+      console.error('No audio URL found in API response.');
       return res.status(404).json({ 
         error: 'Audio download not available for this video',
         message: 'The API did not return audio download links. Try a different video or quality.'
