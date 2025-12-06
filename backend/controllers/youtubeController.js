@@ -174,17 +174,17 @@ export const getVideoInfo = async (req, res) => {
           }
         });
 
-        // Sort by quality descending
-        videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
+        // Sort by quality ASCENDING (lowest first: 144p at top, 2160p at bottom)
+        videoFormats.sort((a, b) => (a.quality || 0) - (b.quality || 0));
 
-        // Audio formats
+        // Audio formats - lowest quality first (96kbps at top, 320kbps at bottom)
         const audioFormats = [
-          { bitrate: 320 },
-          { bitrate: 256 },
-          { bitrate: 192 },
-          { bitrate: 160 },
+          { bitrate: 96 },
           { bitrate: 128 },
-          { bitrate: 96 }
+          { bitrate: 160 },
+          { bitrate: 192 },
+          { bitrate: 256 },
+          { bitrate: 320 }
         ];
 
         console.log(`Found ${videoFormats.length} video formats`);
@@ -304,14 +304,16 @@ export const mergeDownloadGet = async (req, res) => {
 // Download Audio
 export const downloadAudioGet = async (req, res) => {
   try {
-    const { url: videoUrl, bitrate, title } = req.query;
+    // Accept both 'bitrate' and 'itag' (itag is sent by frontend for audio)
+    const { url: videoUrl, bitrate, itag, title } = req.query;
 
     if (!videoUrl) {
       return res.status(400).json({ error: 'URL is required' });
     }
 
     const videoTitle = title || 'audio';
-    const targetBitrate = parseInt(bitrate) || 128;
+    // Use bitrate if provided, otherwise use itag (frontend sends bitrate as itag)
+    const targetBitrate = parseInt(bitrate || itag) || 128;
     const filename = safeFilename(videoTitle, `${targetBitrate}kbps`, 'mp3');
 
     console.log(`Downloading YouTube audio: ${filename} at ${targetBitrate}kbps`);
