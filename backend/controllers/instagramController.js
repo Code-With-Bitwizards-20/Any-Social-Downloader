@@ -372,13 +372,20 @@ export const mergeInstagramVideoAudio = (req, res) => {
     res.setHeader('Content-Type', 'video/mp4');
 
     // Use yt-dlp to get merged streams in Matroska format (better for AV1)
-    const ytdlpProcess = spawn(YT_DLP_PATH, [
+    // Use yt-dlp to get merged streams in Matroska format (better for AV1)
+    const ytdlpArgs = [
       url,
       '--format', `${vItag}+${aItag}`,
+      // '--cookies', COOKIES_PATH, // Removed to fix 0KB issues
+      '--no-check-certificates',
+      '--no-playlist',
+      '--no-warnings',
       '--ffmpeg-location', ffmpegStatic,
-      '--merge-output-format', 'mkv', // Use Matroska format which handles AV1 better
+      '--merge-output-format', 'mkv', // Use Matroska format
       '--output', '-'
-    ]);
+    ];
+
+    const ytdlpProcess = spawn(YT_DLP_PATH, ytdlpArgs);
 
     // Use FFmpeg to convert Matroska to streamable MP4 with both video and audio
     const ffmpegProcess = spawn(ffmpegStatic, [

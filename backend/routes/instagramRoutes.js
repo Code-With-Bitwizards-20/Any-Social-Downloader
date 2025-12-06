@@ -15,14 +15,15 @@ const router = express.Router();
 router.post('/info', validateUrl, getInstagramMediaInfo);
 
 // Download Instagram media (legacy endpoints)
-router.get('/download', downloadInstagramMedia);
-router.post('/download', validateUrl, downloadInstagramMedia);
+// Download Instagram media (legacy endpoints - redirected to new logic)
+router.get('/download', downloadInstagramVideo);
+router.post('/download', validateUrl, downloadInstagramVideo);
 
 // New download endpoints with yt-dlp
 router.get('/download-video', downloadInstagramVideo);
 router.post('/download-video', validateUrl, downloadInstagramVideo);
 router.get('/merge', mergeInstagramVideoAudio);
-router.get('/download-audio', downloadInstagramAudio);
+router.get('/download-audio', downloadInstagramVideo);
 
 // Thumbnail proxy endpoint
 router.get('/thumbnail', getInstagramThumbnail);
