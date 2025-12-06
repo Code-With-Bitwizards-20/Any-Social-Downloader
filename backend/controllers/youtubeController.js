@@ -179,12 +179,12 @@ export const getVideoInfo = async (req, res) => {
 
         // Audio formats - lowest quality first (96kbps at top, 320kbps at bottom)
         const audioFormats = [
-          { bitrate: 96 },
-          { bitrate: 128 },
-          { bitrate: 160 },
-          { bitrate: 192 },
-          { bitrate: 256 },
-          { bitrate: 320 }
+          { bitrate: 96, isTranscoded: true },
+          { bitrate: 128, isTranscoded: true },
+          { bitrate: 160, isTranscoded: true },
+          { bitrate: 192, isTranscoded: true },
+          { bitrate: 256, isTranscoded: true },
+          { bitrate: 320, isTranscoded: true }
         ];
 
         console.log(`Found ${videoFormats.length} video formats`);
