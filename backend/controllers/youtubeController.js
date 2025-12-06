@@ -115,27 +115,64 @@ export const getVideoInfo = async (req, res) => {
 
         // Process video formats
         const videoFormats = [];
+        const qualityMap = new Map();
+        
         if (metadata.formats && Array.isArray(metadata.formats)) {
           metadata.formats.forEach(format => {
-            if (format.vcodec && format.vcodec !== 'none') {
-              const height = format.height || 0;
-              const qualityLabel = height ? `${height}p` : 'unknown';
+            if (format.vcodec && format.vcodec !== 'none' && format.height) {
+              const height = format.height;
+              let qualityLabel;
               
-              videoFormats.push({
-                itag: format.format_id,
-                qualityLabel: qualityLabel,
-                quality: height,
-                hasAudio: format.acodec && format.acodec !== 'none',
-                url: format.url || null,
-                mimeType: format.ext || 'mp4',
-                contentLength: format.filesize || null,
-                width: format.width || null,
-                height: height,
-                fps: format.fps || null
-              });
+              // Map to standard quality labels
+              if (height >= 2160) qualityLabel = '2160p';
+              else if (height >= 1440) qualityLabel = '1440p';
+              else if (height >= 1080) qualityLabel = '1080p';
+              else if (height >= 720) qualityLabel = '720p';
+              else if (height >= 480) qualityLabel = '480p';
+              else if (height >= 360) qualityLabel = '360p';
+              else if (height >= 240) qualityLabel = '240p';
+              else qualityLabel = '144p';
+              
+              // Keep best format for each quality
+              if (!qualityMap.has(qualityLabel) || (format.tbr || 0) > (qualityMap.get(qualityLabel).tbr || 0)) {
+                qualityMap.set(qualityLabel, {
+                  itag: format.format_id,
+                  qualityLabel: qualityLabel,
+                  quality: height,
+                  hasAudio: format.acodec && format.acodec !== 'none',
+                  mimeType: format.ext || 'mp4',
+                  width: format.width || null,
+                  height: height,
+                  fps: format.fps || null,
+                  tbr: format.tbr || 0
+                });
+              }
             }
           });
         }
+
+        // Create standard quality array with all options
+        const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p'];
+        standardQualities.forEach(quality => {
+          const format = qualityMap.get(quality);
+          if (format) {
+            videoFormats.push(format);
+          } else {
+            // Add quality selector even if not available (yt-dlp will pick closest)
+            const height = parseInt(quality);
+            videoFormats.push({
+              itag: `bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`,
+              qualityLabel: quality,
+              quality: height,
+              hasAudio: true,
+              mimeType: 'mp4',
+              width: null,
+              height: height,
+              fps: null,
+              tbr: 0
+            });
+          }
+        });
 
         // Sort by quality descending
         videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
@@ -196,7 +233,19 @@ export const downloadVideo = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'video/mp4');
 
-    const formatArg = itag ? `-f ${itag}` : '-f best';
+    // Handle different format types
+    let formatArg;
+    if (itag && itag.includes('[')) {
+      // Quality selector like "bestvideo[height<=720]+bestaudio"
+      formatArg = `-f ${itag}`;
+    } else if (itag) {
+      // Specific format ID
+      formatArg = `-f ${itag}`;
+    } else {
+      // Default to best
+      formatArg = '-f best';
+    }
+    
     const ytDlpArgs = [
       ...formatArg.split(' '),
       '--cookies', COOKIES_PATH,
@@ -263,27 +312,26 @@ export const downloadAudioGet = async (req, res) => {
 
     const videoTitle = title || 'audio';
     const targetBitrate = parseInt(bitrate) || 128;
-    const filename = safeFilename(videoTitle, `${targetBitrate}k`, 'mp3');
+    const filename = safeFilename(videoTitle, `${targetBitrate}kbps`, 'mp3');
 
     console.log(`Downloading YouTube audio: ${filename} at ${targetBitrate}kbps`);
 
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'audio/mpeg');
 
-    // Use yt-dlp to extract audio
+    // Use yt-dlp to extract best audio and convert to MP3
     const ytdlpStream = spawn(YT_DLP_PATH, [
-      '-f', 'bestaudio',
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '--audio-quality', `${targetBitrate}K`,
+      videoUrl,
+      '-x',                              // Extract audio
+      '--audio-format', 'mp3',           // Convert to MP3
+      '--audio-quality', `${targetBitrate}K`,  // Set bitrate
       '--cookies', COOKIES_PATH,
       '--buffer-size', '32M',
       '--http-chunk-size', '20M',
       '--no-check-certificates',
       '--no-warnings',
       '--no-playlist',
-      '-o', '-',
-      videoUrl
+      '-o', '-'                          // Output to stdout
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     ytdlpStream.stdout.pipe(res);
