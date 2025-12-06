@@ -351,8 +351,7 @@ export const downloadAudioGet = async (req, res) => {
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Pipe through FFmpeg to convert to MP3
-    const ffmpegPath = await import('ffmpeg-static').then(m => m.default);
-    const ffmpegStream = spawn(ffmpegPath, [
+    const ffmpegStream = spawn(ffmpegStatic, [
       '-i', 'pipe:0',               // Input from stdin
       '-vn',                         // No video
       '-acodec', 'libmp3lame',      // MP3 encoder
