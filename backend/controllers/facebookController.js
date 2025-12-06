@@ -96,28 +96,27 @@ export const getFacebookVideoInfo = async (req, res) => {
       } catch (noCookieError) {
         // Both failed, throw the original or most relevant error
         console.error('Failed without cookies too:', noCookieError.message);
-        throw new Error(cookieError.message + ' | ' + noCookieError.message);
+        
+        // Check for specific error types to give better user feedback
+        let userMessage = 'Failed to fetch video information';
+        const errorMsg = (cookieError.message + noCookieError.message).toLowerCase();
+        
+        if (errorMsg.includes('login') || errorMsg.includes('sign in') || errorMsg.includes('private')) {
+          userMessage = 'This video is private or requires login. Only public Facebook videos can be downloaded.';
+        } else if (errorMsg.includes('not available') || errorMsg.includes('removed')) {
+          userMessage = 'This video is not available or has been removed.';
+        }
+
+        // Must return JSON content-type explicitly if global error handler misses it
+        return res.status(400).json({ 
+          success: false,
+          error: userMessage,
+          details: noCookieError.message
+        });
       }
     }
 
-    // Helper function to parse Facebook date format (YYYYMMDD)
-    const parseDate = (dateStr) => {
-      if (!dateStr) return null;
-      if (dateStr.length === 8) {
-        return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6)}`;
-      }
-      return dateStr;
-    };
 
-    const videoInfo = {
-      title: metadata.title || 'Facebook Video',
-      author: metadata.uploader || metadata.channel || 'Unknown',
-      lengthSeconds: metadata.duration || 0,
-      viewCount: metadata.view_count || 0,
-      publishDate: parseDate(metadata.upload_date),
-      description: metadata.description || '',
-      thumbnail: metadata.thumbnail || ''
-    };
         const parseUploadDate = (dateString) => {
           if (!dateString) return null;
           if (typeof dateString === 'string' && dateString.length === 8 && /^\d{8}$/.test(dateString)) {
@@ -263,15 +262,8 @@ export const getFacebookVideoInfo = async (req, res) => {
 
         console.log('Facebook video info retrieved successfully');
         res.status(200).json(formattedResponse);
-      } catch (parseError) {
-        console.error('Error parsing JSON:', parseError);
-        res.status(500).json({ 
-          success: false,
-          error: 'Failed to parse video information',
-          details: parseError.message
-        });
-      }
-    });
+
+
 
   } catch (error) {
     console.error('Facebook Info Error:', error);
