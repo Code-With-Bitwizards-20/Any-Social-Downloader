@@ -1,15 +1,14 @@
-import axios from 'axios';
+import { spawn } from 'child_process';
+import ffmpegStatic from 'ffmpeg-static';
 
-// RapidAPI Configuration
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || '1d84225686msh604fb4f67a9befcp1ce16ejsn879505b6dba0';
-const RAPIDAPI_HOST = 'youtube-media-downloader.p.rapidapi.com';
+// yt-dlp path (will be installed on VPS)
+const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
 
 // Utility: Extract video ID from YouTube URL
 const getVideoId = (url) => {
   try {
     const urlObj = new URL(url);
     
-    // Handle different YouTube URL formats
     if (urlObj.hostname === 'youtu.be') {
       return urlObj.pathname.slice(1);
     }
@@ -37,20 +36,7 @@ const safeFilename = (title, suffix = '', ext = 'mp4') => {
   return `${base}${sfx}.${ext}`;
 };
 
-// Utility: Format duration from seconds
-const formatDuration = (seconds) => {
-  if (!seconds) return '0:00';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  
-  if (hrs > 0) {
-    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-  return `${mins}:${String(secs).padStart(2, '0')}`;
-};
-
-// Get Video Information
+// Get Video Information using yt-dlp
 export const getVideoInfo = async (req, res) => {
   try {
     const { url } = req.body;
@@ -72,154 +58,112 @@ export const getVideoInfo = async (req, res) => {
 
     console.log(`Fetching YouTube video info for ID: ${videoId}`);
 
-    // Call RapidAPI
-    const response = await axios.get(
-      `https://${RAPIDAPI_HOST}/v2/video/details`,
-      {
-        params: {
-          videoId: videoId,
-          urlAccess: 'normal',
-          videos: 'auto',
-          audios: 'auto'
-        },
-        headers: {
-          'x-rapidapi-host': RAPIDAPI_HOST,
-          'x-rapidapi-key': RAPIDAPI_KEY
-        },
-        timeout: 30000
+    // Use yt-dlp to get video information
+    const ytDlpProcess = spawn(ytDlpPath, [
+      '--dump-single-json',
+      '--no-warnings',
+      '--no-playlist',
+      url
+    ]);
+
+    let jsonOutput = '';
+    let errorOutput = '';
+
+    ytDlpProcess.stdout.on('data', (data) => {
+      jsonOutput += data.toString();
+    });
+
+    ytDlpProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+
+    ytDlpProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error('yt-dlp error:', errorOutput);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to fetch video information',
+          details: errorOutput
+        });
       }
-    );
 
-    const data = response.data;
+      try {
+        const data = JSON.parse(jsonOutput);
 
-    // Check for API errors
-    if (data.errorId || data.error) {
-      console.error('RapidAPI returned error:', data);
-      return res.status(404).json({
-        success: false,
-        error: data.reason || data.message || 'Video not found or unavailable'
-      });
-    }
+        // Build video info
+        const videoInfo = {
+          title: data.title || 'Unknown Title',
+          author: data.uploader || data.channel || 'Unknown',
+          lengthSeconds: data.duration || 0,
+          viewCount: data.view_count || 0,
+          publishDate: data.upload_date || null,
+          description: data.description || '',
+          thumbnail: data.thumbnail || ''
+        };
 
-    if (!data || !data.title) {
-      return res.status(404).json({
-        success: false,
-        error: 'Video not found or unavailable'
-      });
-    }
-
-    // Build video details
-    const videoInfo = {
-      title: data.title || 'Unknown Title',
-      author: data.channel?.name || data.author || 'Unknown',
-      lengthSeconds: data.lengthSeconds || 0,
-      viewCount: data.viewCount || 0,
-      publishDate: data.publishDate || null,
-      description: data.description || '',
-      thumbnail: data.thumbnail || data.thumbnails?.[0]?.url || ''
-    };
-
-    // Process video formats - RapidAPI returns them in data.links structure
-    const videoFormats = [];
-    const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p'];
-    
-    // Check data.links.videos for video URLs  
-    const videosList = data.links?.videos || data.videos || [];
-    
-    if (videosList && Array.isArray(videosList) && videosList.length > 0) {
-      videosList.forEach(video => {
-        // Extract quality label
-        let qualityLabel = video.quality || video.qualityLabel || video.quality_label || '';
-        
-        // Sometimes quality is like "720p60", convert to "720p"
-        const qualityMatch = qualityLabel.match(/(\d+p)/);
-        if (qualityMatch) {
-          qualityLabel = qualityMatch[1];
-        }
-        
-        // Extract numeric quality for sorting
-        const qualityNum = parseInt(qualityLabel) || 0;
-        
-        if (qualityLabel && video.url) {
-          videoFormats.push({
-            itag: video.itag || video.id || qualityLabel,
-            qualityLabel: qualityLabel,
-            quality: qualityNum,
-            hasAudio: video.hasAudio !== false,
-            url: video.url,
-            mimeType: video.mimeType || video.type || 'video/mp4',
-            contentLength: video.contentLength || video.size || null,
-            width: video.width || null,
-            height: video.height || qualityNum
+        // Process video formats
+        const videoFormats = [];
+        if (data.formats && Array.isArray(data.formats)) {
+          data.formats.forEach(format => {
+            // Only include formats with video
+            if (format.vcodec && format.vcodec !== 'none') {
+              const height = format.height || 0;
+              const qualityLabel = height ? `${height}p` : 'unknown';
+              
+              videoFormats.push({
+                itag: format.format_id,
+                qualityLabel: qualityLabel,
+                quality: height,
+                hasAudio: format.acodec && format.acodec !== 'none',
+                url: format.url || null,
+                mimeType: format.ext || 'mp4',
+                contentLength: format.filesize || null,
+                width: format.width || null,
+                height: height,
+                fps: format.fps || null
+              });
+            }
           });
         }
-      });
-    }
 
-    // Sort by quality descending
-    videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
+        // Sort by quality descending
+        videoFormats.sort((a, b) => (b.quality || 0) - (a.quality || 0));
 
-    // Process audio formats - check data.links.audios
-    const audioFormats = [];
-    const audiosList = data.links?.audios || data.audios || [];
-    
-    if (audiosList && Array.isArray(audiosList) && audiosList.length > 0) {
-      audiosList.forEach(audio => {
-        const bitrate = parseInt(audio.bitrate) || parseInt(audio.audioBitrate) || parseInt(audio.quality) || 128;
-        
-        if (audio.url) {
-          audioFormats.push({
-            bitrate: bitrate,
-            url: audio.url,
-            mimeType: audio.mimeType || audio.type || 'audio/mp4',
-            contentLength: audio.contentLength || audio.size || null
-          });
-        }
-      });
-      
-      // Sort by bitrate descending
-      audioFormats.sort((a, b) => b.bitrate - a.bitrate);
-    }
+        // Audio formats (standard bitrates)
+        const audioFormats = [
+          { bitrate: 320 },
+          { bitrate: 256 },
+          { bitrate: 192 },
+          { bitrate: 160 },
+          { bitrate: 128 },
+          { bitrate: 96 }
+        ];
 
-    // If no audio URLs from API, just show available bitrates (without URLs)
-    if (audioFormats.length === 0) {
-      [96, 128, 160, 192, 256, 320].forEach(bitrate => {
-        audioFormats.push({ bitrate, isTranscoded: true, url: null });
-      });
-    }
+        console.log(`Found ${videoFormats.length} video formats and ${audioFormats.length} audio options`);
 
-    console.log(`Found ${videoFormats.length} video formats and ${audioFormats.length} audio formats`);
+        res.status(200).json({
+          success: true,
+          videoInfo,
+          formats: {
+            video: videoFormats,
+            audio: audioFormats
+          }
+        });
 
-    res.status(200).json({
-      success: true,
-      videoInfo,
-      formats: {
-        video: videoFormats,
-        audio: audioFormats
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to parse video information' 
+        });
       }
     });
 
   } catch (error) {
-    console.error('YouTube API Error:', error.response?.data || error.message);
-    
-    if (error.response?.status === 404) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Video not found' 
-      });
-    }
-
-    if (error.response?.status === 403) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'API key invalid or quota exceeded' 
-      });
-    }
-
+    console.error('Get Info Error:', error.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to fetch video information',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: 'Failed to fetch video information'
     });
   }
 };
@@ -233,65 +177,50 @@ export const downloadVideo = async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const videoId = getVideoId(videoUrl);
-    if (!videoId) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
-    }
-
-    // Get video details first to find the download URL
-    const response = await axios.get(
-      `https://${RAPIDAPI_HOST}/v2/video/details`,
-      {
-        params: {
-          videoId: videoId,
-          urlAccess: 'normal',
-          videos: 'auto',
-          audios: 'auto'
-        },
-        headers: {
-          'x-rapidapi-host': RAPIDAPI_HOST,
-          'x-rapidapi-key': RAPIDAPI_KEY
-        }
-      }
-    );
-
-    const data = response.data;
-    const videoTitle = title || data.title || 'video';
-
-    // Find requested format or best quality
-    let downloadUrl;
-    const videosList = data.links?.videos || data.videos || [];
-    
-    if (itag && videosList.length > 0) {
-      const format = videosList.find(v => v.itag == itag || v.url === itag);
-      downloadUrl = format?.url;
-    }
-
-    if (!downloadUrl && videosList.length > 0) {
-      // Get highest quality
-      const sorted = videosList.sort((a, b) => 
-        (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0)
-      );
-      downloadUrl = sorted[0].url;
-    }
-
-    if (!downloadUrl) {
-      return res.status(404).json({ error: 'Download URL not found' });
-    }
-
+    const videoTitle = title || 'video';
     const filename = safeFilename(videoTitle, '', 'mp4');
 
-    // Redirect to the download URL
+    console.log(`Downloading video: ${filename}`);
+
+    // Set response headers
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.redirect(downloadUrl);
+    res.setHeader('Content-Type', 'video/mp4');
+
+    // Use yt-dlp to download
+    const formatArg = itag ? `-f ${itag}` : '-f best';
+    const ytDlpArgs = [
+      ...formatArg.split(' '),
+      '--no-warnings',
+      '--no-playlist',
+      '-o', '-',  // Output to stdout
+      videoUrl
+    ];
+
+    const ytDlpProcess = spawn(ytDlpPath, ytDlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    ytDlpProcess.stdout.pipe(res);
+
+    ytDlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+
+    ytDlpProcess.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).json({ error: 'Download failed' });
+      }
+    });
+
+    ytDlpProcess.on('error', (error) => {
+      console.error('yt-dlp process error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Download failed' });
+      }
+    });
 
   } catch (error) {
     console.error('Download Error:', error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Download failed',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      res.status(500).json({ error: 'Download failed' });
     }
   }
 };
@@ -302,7 +231,7 @@ export const downloadVideoGet = async (req, res) => {
   return downloadVideo(req, res);
 };
 
-// Merge Download (for compatibility - redirects to regular download)
+// Merge Download (for compatibility)
 export const mergeDownloadGet = async (req, res) => {
   const { url, vItag, title } = req.query;
   req.body = { url, itag: vItag, title };
@@ -318,75 +247,51 @@ export const downloadAudioGet = async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const videoId = getVideoId(videoUrl);
-    if (!videoId) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
-    }
-
-    console.log(`Downloading audio for video ID: ${videoId} at ${bitrate}kbps`);
-
-    // Get video details
-    const response = await axios.get(
-      `https://${RAPIDAPI_HOST}/v2/video/details`,
-      {
-        params: {
-          videoId: videoId,
-          urlAccess: 'normal',
-          videos: 'auto',
-          audios: 'auto'
-        },
-        headers: {
-          'x-rapidapi-host': RAPIDAPI_HOST,
-          'x-rapidapi-key': RAPIDAPI_KEY
-        },
-        timeout: 30000
-      }
-    );
-
-    const data = response.data;
-    const videoTitle = title || data.title || 'audio';
+    const videoTitle = title || 'audio';
     const targetBitrate = parseInt(bitrate) || 128;
-
-    let downloadUrl;
-
-    // Check data.links.audios for audio URLs
-    const audiosList = data.links?.audios || data.audios || [];
-    
-    console.log(`Found ${audiosList.length} audio formats in API response`);
-
-    // Find audio format closest to requested bitrate
-    if (audiosList && audiosList.length > 0) {
-      const sorted = audiosList.sort((a, b) => {
-        const aBitrate = parseInt(a.bitrate) || parseInt(a.audioBitrate) || parseInt(a.quality) || 128;
-        const bBitrate = parseInt(b.bitrate) || parseInt(b.audioBitrate) || parseInt(b.quality) || 128;
-        return Math.abs(aBitrate - targetBitrate) - Math.abs(bBitrate - targetBitrate);
-      });
-      downloadUrl = sorted[0]?.url;
-    }
-
-    if (!downloadUrl) {
-      console.error('No audio URL found in API response.');
-      return res.status(404).json({ 
-        error: 'Audio download not available for this video',
-        message: 'The API did not return audio download links. Try a different video or quality.'
-      });
-    }
-
     const filename = safeFilename(videoTitle, `${targetBitrate}k`, 'mp3');
 
-    console.log(`Redirecting to audio download URL`);
+    console.log(`Downloading audio: ${filename} at ${targetBitrate}kbps`);
 
-    // Redirect to the download URL
+    // Set response headers
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.redirect(downloadUrl);
+    res.setHeader('Content-Type', 'audio/mpeg');
+
+    // Use yt-dlp to extract audio
+    const ytDlpProcess = spawn(ytDlpPath, [
+      '-f', 'bestaudio',
+      '--extract-audio',
+      '--audio-format', 'mp3',
+      '--audio-quality', `${targetBitrate}K`,
+      '--no-warnings',
+      '--no-playlist',
+      '-o', '-',  // Output to stdout
+      videoUrl
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    ytDlpProcess.stdout.pipe(res);
+
+    ytDlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+
+    ytDlpProcess.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).json({ error: 'Audio download failed' });
+      }
+    });
+
+    ytDlpProcess.on('error', (error) => {
+      console.error('yt-dlp process error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Audio download failed' });
+      }
+    });
 
   } catch (error) {
-    console.error('Audio Download Error:', error.response?.data || error.message);
+    console.error('Audio Download Error:', error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Audio download failed',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      res.status(500).json({ error: 'Audio download failed' });
     }
   }
 };
