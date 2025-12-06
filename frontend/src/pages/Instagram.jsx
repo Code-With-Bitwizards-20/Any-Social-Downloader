@@ -280,7 +280,7 @@ const Instagram = () => {
                         <div className="relative aspect-video rounded-2xl overflow-hidden shadow-lg group">
                           {videoInfo.thumbnail ? (
                             <img
-                              src={`/api/instagram/thumbnail?url=${encodeURIComponent(
+                              src={`${import.meta.env.VITE_API_URL || 'https://api.anysocialdownloader.cloud'}/api/instagram/thumbnail?url=${encodeURIComponent(
                                 videoInfo.thumbnail
                               )}`}
                               alt={videoInfo.title}
