@@ -1,13 +1,31 @@
-import ytdl from 'ytdl-core';
+import ytdl from '@distube/ytdl-core';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import { google } from 'googleapis';
+import { Agent } from 'undici';
+
+// Create agent for better YouTube compatibility
+const agent = new Agent({
+  pipelining: 0,
+  connections: 100
+});
 
 // YouTube Data API v3 client (optional)
 const youtube = process.env.YOUTUBE_API_KEY && process.env.USE_YOUTUBE_API === 'true'
   ? google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY })
   : null;
+
+// Default ytdl options to bypass YouTube restrictions
+const ytdlOptions = {
+  agent,
+  requestOptions: {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    }
+  }
+};
 
 // Utility: Extract video ID from YouTube URL
 const getVideoId = (url) => {
@@ -72,7 +90,7 @@ export const getVideoInfo = async (req, res) => {
     }
 
     // Fetch video info using ytdl-core
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, ytdlOptions);
     const videoDetails = info.videoDetails;
 
     // Optionally enhance with YouTube Data API
@@ -198,7 +216,7 @@ export const downloadVideo = async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, ytdlOptions);
     const videoTitle = title || info.videoDetails.title;
     
     // Find format by itag or use best quality
@@ -226,7 +244,7 @@ export const downloadVideo = async (req, res) => {
     }
 
     // Stream video directly to response
-    const videoStream = ytdl(url, { format });
+    const videoStream = ytdl(url, { ...ytdlOptions, format });
     
     videoStream.on('error', (err) => {
       console.error('Stream error:', err);
@@ -261,7 +279,7 @@ export const downloadVideoGet = async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, ytdlOptions);
     const videoTitle = title || info.videoDetails.title;
     
     // Find format by itag or use best quality
@@ -286,7 +304,7 @@ export const downloadVideoGet = async (req, res) => {
       res.setHeader('Content-Length', format.contentLength);
     }
 
-    const videoStream = ytdl(url, { format });
+    const videoStream = ytdl(url, { ...ytdlOptions, format });
     
     videoStream.on('error', (err) => {
       console.error('Stream error:', err);
@@ -318,7 +336,7 @@ export const mergeDownloadGet = async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, ytdlOptions);
     const videoTitle = title || info.videoDetails.title;
     const filename = safeFilename(videoTitle, '', 'mp4');
 
@@ -329,8 +347,8 @@ export const mergeDownloadGet = async (req, res) => {
     res.setHeader('Transfer-Encoding', 'chunked');
 
     // Get video and audio streams
-    const videoStream = ytdl(url, { quality: vItag });
-    const audioStream = ytdl(url, { quality: aItag });
+    const videoStream = ytdl(url, { ...ytdlOptions, quality: vItag });
+    const audioStream = ytdl(url, { ...ytdlOptions, quality: aItag });
 
     // Merge using ffmpeg
     const ffmpegProcess = spawn(ffmpegStatic, [
@@ -408,7 +426,7 @@ export const downloadAudioGet = async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, ytdlOptions);
     const videoTitle = title || info.videoDetails.title;
     const targetBitrate = parseInt(bitrate) || 192;
     const filename = safeFilename(videoTitle, `${targetBitrate}k`, 'mp3');
@@ -421,6 +439,7 @@ export const downloadAudioGet = async (req, res) => {
 
     // Get best audio stream
     const audioStream = ytdl(url, {
+      ...ytdlOptions,
       quality: 'highestaudio',
       filter: 'audioonly'
     });
