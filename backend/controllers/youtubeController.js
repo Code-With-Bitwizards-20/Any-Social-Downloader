@@ -335,23 +335,37 @@ export const downloadAudioGet = async (req, res) => {
 
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
-    // Use yt-dlp to extract best audio and convert to MP3
+    // Use yt-dlp to get best audio, then pipe through ffmpeg to convert to MP3
     const ytdlpStream = spawn(YT_DLP_PATH, [
       videoUrl,
-      '-x',                              // Extract audio
-      '--audio-format', 'mp3',           // Convert to MP3
-      '--audio-quality', `${targetBitrate}K`,  // Set bitrate
+      '-f', 'bestaudio',           // Get best audio
       '--cookies', COOKIES_PATH,
       '--buffer-size', '32M',
       '--http-chunk-size', '20M',
       '--no-check-certificates',
       '--no-warnings',
       '--no-playlist',
-      '-o', '-'                          // Output to stdout
+      '-o', '-'                     // Output to stdout
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    ytdlpStream.stdout.pipe(res);
+    // Pipe through FFmpeg to convert to MP3
+    const ffmpegPath = await import('ffmpeg-static').then(m => m.default);
+    const ffmpegStream = spawn(ffmpegPath, [
+      '-i', 'pipe:0',               // Input from stdin
+      '-vn',                         // No video
+      '-acodec', 'libmp3lame',      // MP3 encoder
+      '-b:a', `${targetBitrate}k`,  // Bitrate
+      '-ar', '44100',               // Sample rate
+      '-ac', '2',                   // Stereo
+      '-f', 'mp3',                  // Output format MP3
+      'pipe:1'                      // Output to stdout
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    // Pipe yt-dlp → ffmpeg → response
+    ytdlpStream.stdout.pipe(ffmpegStream.stdin);
+    ffmpegStream.stdout.pipe(res);
 
     ytdlpStream.stderr.on('data', (data) => {
       console.error('yt-dlp stderr:', data.toString());
