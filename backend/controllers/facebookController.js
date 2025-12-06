@@ -275,104 +275,116 @@ export const getFacebookVideoInfo = async (req, res) => {
   }
 };
 
-export const downloadFacebookVideo = (req, res) => {
+export const downloadFacebookVideo = async (req, res) => {
   try {
-    const { url, itag, format_id, title } = req.method === 'POST' ? req.body : req.query;
+    const { url, itag, format_id, title, bitrate } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
     
-    console.log('Facebook download request:', { url, itag: selectedFormatId, title });
+    // Check if it's an audio download request (standard bitrates)
+    const isAudio = bitrate || (['96', '128', '160', '192', '256', '320'].includes(String(selectedFormatId)));
     
+    console.log(`Facebook download request: URL=${url}, Format=${selectedFormatId}, Audio=${isAudio}`);
+
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const filename = safeFilename(title || 'facebook_video', '', 'mp4');
-    
-    // Set response headers so browser starts download immediately
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.setHeader('Content-Type', 'video/mp4');
+    // Common Headers
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Accept-Ranges', 'none');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Connection', 'keep-alive');
 
-    const args = [
-      url,
-      '--output', '-',
-      '--cookies', COOKIES_PATH,        // Use Facebook cookies
-      '--buffer-size', '32M',           // Massive buffer for max speed
-      '--http-chunk-size', '20M',       // Larger chunks = fewer requests
-      '--concurrent-fragments', '10',    // Download 10 fragments at once
-      '--retries', '10',
-      '--fragment-retries', '10',
-      '--no-check-certificates',        // Skip cert validation for speed
-      '--no-warnings',
-      '--throttled-rate', '100K'        // Only throttle below 100KB/s
-    ];
+    if (isAudio) {
+      // --- AUDIO DOWNLOAD (Convert to MP3) ---
+      const targetBitrate = parseInt(bitrate || selectedFormatId) || 128;
+      const filename = safeFilename(title || 'facebook_audio', `${targetBitrate}kbps`, 'mp3');
 
-    if (selectedFormatId) {
-      // Handle both specific format IDs and generic quality selectors
-      if (selectedFormatId.includes('[') || selectedFormatId.includes('best') || selectedFormatId.includes('worst')) {
-        // Generic format selector (like "best[height<=480]/best")
-        args.splice(1, 0, '--format', selectedFormatId);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'audio/mpeg');
+
+      // 1. Get Audio Stream from yt-dlp
+      const ytdlpArgs = [
+        '-f', 'bestaudio/best',    // Get best available audio
+        '--cookies', COOKIES_PATH,
+        '--no-warnings',
+        '--no-check-certificates',
+        '--no-playlist',
+        '--buffer-size', '16M',
+        '-o', '-',                 // Output to stdout
+        url
+      ];
+
+      const ytdlpProcess = spawn(YT_DLP_PATH, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      // 2. Pipe to FFmpeg for Conversion
+      const ffmpegArgs = [
+        '-i', 'pipe:0',            // Input from yt-dlp
+        '-vn',                     // No video
+        '-acodec', 'libmp3lame',   // MP3 Encoder
+        '-b:a', `${targetBitrate}k`,
+        '-ar', '44100',
+        '-ac', '2',
+        '-f', 'mp3',               // Force MP3 behavior
+        'pipe:1'                   // Output to stdout
+      ];
+
+      const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+      // Pipeline: yt-dlp -> ffmpeg -> response
+      ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
+      ffmpegProcess.stdout.pipe(res);
+
+      // Error Handling
+      ytdlpProcess.stderr.on('data', d => console.error('yt-dlp stderr:', d.toString()));
+      ffmpegProcess.stderr.on('data', d => {
+        const msg = d.toString();
+        if (msg.includes('Error')) console.error('FFmpeg stderr:', msg);
+      });
+
+      const cleanup = () => {
+        ytdlpProcess.kill();
+        ffmpegProcess.kill();
+      };
+
+      req.on('close', cleanup);
+
+    } else {
+      // --- VIDEO DOWNLOAD (Direct Stream) ---
+      const filename = safeFilename(title || 'facebook_video', '', 'mp4');
+      
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Content-Type', 'video/mp4');
+
+      const args = [
+        '--cookies', COOKIES_PATH,
+        '--no-warnings',
+        '--no-check-certificates',
+        '--no-playlist',
+        '--buffer-size', '32M',
+        '--http-chunk-size', '10M',
+        '-o', '-',
+      ];
+
+      if (selectedFormatId && selectedFormatId !== 'best') {
+         args.push('-f', selectedFormatId);
       } else {
-        // Specific format ID
-        args.splice(1, 0, '--format', selectedFormatId);
+         args.push('-f', 'best');
       }
+
+      args.push(url); // URL last
+
+      const ytdlpProcess = spawn(YT_DLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      ytdlpProcess.stdout.pipe(res);
+
+      ytdlpProcess.stderr.on('data', d => console.error('yt-dlp stderr:', d.toString()));
+      
+      req.on('close', () => ytdlpProcess.kill());
     }
-
-    const ytdlpProcess = spawn(YT_DLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    const cleanup = () => {
-      try { ytdlpProcess.stdout.destroy(); } catch {}
-      try { ytdlpProcess.stderr.destroy(); } catch {}
-      try { ytdlpProcess.kill('SIGKILL'); } catch {}
-    };
-
-    onClientDisconnect(req, res, () => {
-      cleanup();
-      try { if (!res.writableEnded && !res.destroyed) res.end(); } catch {}
-    });
-
-    safePipe(ytdlpProcess.stdout, res, (err) => {
-      if (err) {
-        console.error('Pipeline error (Facebook yt-dlp -> res):', err.message);
-      }
-      cleanup();
-    });
-
-    ytdlpProcess.stderr.on('data', (data) => {
-      const msg = data.toString();
-      if (msg.toLowerCase().includes('error')) {
-        console.error('yt-dlp stderr:', msg);
-      }
-    });
-
-    ytdlpProcess.on('error', (error) => {
-      console.error('Process error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Download process failed' });
-      }
-      cleanup();
-    });
-
-    ytdlpProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('yt-dlp process exited with code:', code);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Download failed' });
-        }
-      }
-      console.log('Facebook download completed');
-      cleanup();
-    });
 
   } catch (error) {
-    console.error('Facebook Download Error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Internal server error',
-        details: error.message
-      });
-    }
+    console.error('Download Logic Error:', error);
+    if (!res.headersSent) res.status(500).send('Internal Server Error');
   }
 };
 
