@@ -305,7 +305,7 @@ export const downloadFacebookVideo = async (req, res) => {
       // 1. Get Audio Stream from yt-dlp
       const ytdlpArgs = [
         '-f', 'bestaudio/best',    // Get best available audio
-        '--cookies', COOKIES_PATH,
+        // '--cookies', COOKIES_PATH, // Cookies removed to prevent 0KB errors on public videos
         '--no-warnings',
         '--no-check-certificates',
         '--no-playlist',
@@ -356,7 +356,7 @@ export const downloadFacebookVideo = async (req, res) => {
       res.setHeader('Content-Type', 'video/mp4');
 
       const args = [
-        '--cookies', COOKIES_PATH,
+        // '--cookies', COOKIES_PATH, // Cookies removed to prevent 0KB errors
         '--no-warnings',
         '--no-check-certificates',
         '--no-playlist',
