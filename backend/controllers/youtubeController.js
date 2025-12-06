@@ -3,13 +3,6 @@ import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import { google } from 'googleapis';
-import { Agent } from 'undici';
-
-// Create agent for better YouTube compatibility
-const agent = new Agent({
-  pipelining: 0,
-  connections: 100
-});
 
 // YouTube Data API v3 client (optional)
 const youtube = process.env.YOUTUBE_API_KEY && process.env.USE_YOUTUBE_API === 'true'
@@ -18,7 +11,6 @@ const youtube = process.env.YOUTUBE_API_KEY && process.env.USE_YOUTUBE_API === '
 
 // Default ytdl options to bypass YouTube restrictions
 const ytdlOptions = {
-  agent,
   requestOptions: {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
