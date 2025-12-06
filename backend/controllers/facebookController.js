@@ -44,62 +44,80 @@ const safePipe = (src, dest, onError) => {
 };
 
 export const getFacebookVideoInfo = async (req, res) => {
+  const { url } = req.body;
+  console.log('Facebook info request for URL:', url);
+
   try {
-    const { url } = req.body;
-    
-    console.log('Facebook info request for URL:', url);
-    
-    const ytdlpProcess = spawn(YT_DLP_PATH, [
-      '--dump-single-json',
-      '--no-warnings',
-      '--no-check-certificates',
-      '--no-playlist',
-      '--cookies', COOKIES_PATH,
-      url
-    ]);
+    // Helper function to fetch info
+    const fetchInfo = (withCookies) => {
+      return new Promise((resolve, reject) => {
+        const args = [
+          '--dump-single-json',
+          '--no-warnings',
+          '--no-check-certificates',
+          '--no-playlist',
+        ];
 
-    let jsonData = '';
-    let errorData = '';
-
-    ytdlpProcess.stdout.on('data', (data) => {
-      jsonData += data.toString();
-    });
-
-    ytdlpProcess.stderr.on('data', (data) => {
-      errorData += data.toString();
-      console.error('yt-dlp stderr:', data.toString());
-    });
-
-    ytdlpProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('yt-dlp process exited with code:', code);
-        console.error('Error output:', errorData);
-        
-        // Check for specific error types
-        let userMessage = 'Failed to fetch video information';
-        
-        if (errorData.toLowerCase().includes('login') || 
-            errorData.toLowerCase().includes('sign in') ||
-            errorData.toLowerCase().includes('private')) {
-          userMessage = 'This video is private or requires login. Only public Facebook videos can be downloaded.';
-        } else if (errorData.toLowerCase().includes('not available') ||
-                   errorData.toLowerCase().includes('removed')) {
-          userMessage = 'This video is not available or has been removed.';
-        } else if (errorData.toLowerCase().includes('age')) {
-          userMessage = 'This video is age-restricted and cannot be downloaded.';
+        if (withCookies) {
+          args.push('--cookies', COOKIES_PATH);
         }
-        
-        return res.status(400).json({ 
-          success: false,
-          error: userMessage,
-          hint: 'Only public Facebook videos can be downloaded without login'
-        });
-      }
 
+        args.push(url);
+
+        const process = spawn(YT_DLP_PATH, args);
+        let jsonData = '';
+        let errorData = '';
+
+        process.stdout.on('data', (data) => jsonData += data.toString());
+        process.stderr.on('data', (data) => errorData += data.toString());
+
+        process.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(errorData || 'Process exited with code ' + code));
+          } else {
+            resolve(jsonData);
+          }
+        });
+      });
+    };
+
+    // Try with cookies first
+    let metadata;
+    try {
+      console.log('Trying with cookies...');
+      const jsonOutput = await fetchInfo(true);
+      metadata = JSON.parse(jsonOutput);
+    } catch (cookieError) {
+      console.warn('Failed with cookies, retrying without...', cookieError.message.split('\n')[0]);
+      // Retry without cookies
       try {
-        const metadata = JSON.parse(jsonData);
-        
-        // Helper function to parse Facebook date format (YYYYMMDD)
+        const jsonOutput = await fetchInfo(false);
+        metadata = JSON.parse(jsonOutput);
+      } catch (noCookieError) {
+        // Both failed, throw the original or most relevant error
+        console.error('Failed without cookies too:', noCookieError.message);
+        throw new Error(cookieError.message + ' | ' + noCookieError.message);
+      }
+    }
+
+    // Helper function to parse Facebook date format (YYYYMMDD)
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      if (dateStr.length === 8) {
+        return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6)}`;
+      }
+      return dateStr;
+    };
+
+    const videoInfo = {
+      title: metadata.title || 'Facebook Video',
+      author: metadata.uploader || metadata.channel || 'Unknown',
+      lengthSeconds: metadata.duration || 0,
+      viewCount: metadata.view_count || 0,
+      publishDate: parseDate(metadata.upload_date),
+      description: metadata.description || '',
+      thumbnail: metadata.thumbnail || ''
+    };
         const parseUploadDate = (dateString) => {
           if (!dateString) return null;
           if (typeof dateString === 'string' && dateString.length === 8 && /^\d{8}$/.test(dateString)) {
@@ -178,7 +196,7 @@ export const getFacebookVideoInfo = async (req, res) => {
           }
         });
         
-        // Convert map to array and sort by quality (ascending)
+        // Convert map to array and sort by quality (ascending - lowest first)
         const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p'];
         const availableQualities = Array.from(qualityMap.keys());
         
@@ -219,9 +237,16 @@ export const getFacebookVideoInfo = async (req, res) => {
           }
         });
         
+        // Sort by quality ASCENDING (lowest first: 144p at top, 1080p at bottom)
+        videoFormats.sort((a, b) => {
+           const valA = parseInt(a.qualityLabel) || 0;
+           const valB = parseInt(b.qualityLabel) || 0;
+           return valA - valB;
+        });
+
         console.log('Processed video formats:', videoFormats.map(f => ({ quality: f.qualityLabel, itag: f.itag, hasAudio: f.hasAudio, merge: f.merge })));
 
-        // Audio formats - create standard MP3 bitrates like YouTube
+        // Audio formats - standard MP3 bitrates (lowest first)
         const transcodeAudioFormats = [96, 128, 160, 192, 256, 320].map(bitrate => ({
           bitrate,
           isTranscoded: true
