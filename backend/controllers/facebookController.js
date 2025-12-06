@@ -52,7 +52,9 @@ export const getFacebookVideoInfo = async (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       '--dump-single-json',
       '--no-warnings',
-      '--cookies', COOKIES_PATH,  // Use Facebook cookies
+      '--no-check-certificates',
+      '--no-playlist',
+      '--cookies', COOKIES_PATH,
       url
     ]);
 
