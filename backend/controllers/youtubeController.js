@@ -317,7 +317,7 @@ export const mergeDownloadGet = async (req, res) => {
 };
 
 // Download Audio
-export const downloadAudioGet = async (req, res) => {
+export const downloadAudioGet = (req, res) => {
   try {
     // Accept both 'bitrate' and 'itag' (itag is sent by frontend for audio)
     const { url: videoUrl, bitrate, itag, title } = req.query;
@@ -339,15 +339,15 @@ export const downloadAudioGet = async (req, res) => {
 
     // Use yt-dlp to get best audio, then pipe through ffmpeg to convert to MP3
     const ytdlpStream = spawn(YT_DLP_PATH, [
-      videoUrl,
-      '-f', 'bestaudio',           // Get best audio
+      '-f', 'bestaudio/best',      // Robust format selector
       '--cookies', COOKIES_PATH,
       '--buffer-size', '32M',
       '--http-chunk-size', '20M',
       '--no-check-certificates',
       '--no-warnings',
       '--no-playlist',
-      '-o', '-'                     // Output to stdout
+      '-o', '-',                   // Output to stdout
+      videoUrl                     // URL at the end
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Pipe through FFmpeg to convert to MP3
