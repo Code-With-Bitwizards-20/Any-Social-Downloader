@@ -25,38 +25,74 @@ export const getInstagramMediaInfo = async (req, res) => {
     
     console.log('Instagram info request for URL:', url);
     
-    const ytdlpProcess = spawn(YT_DLP_PATH, [
-      '--dump-single-json',
-      '--no-warnings',
-      '--cookies', COOKIES_PATH,
-      url
-    ]);
+    // Helper function to fetch info
+    const fetchInfo = (withCookies) => {
+      return new Promise((resolve, reject) => {
+        const args = [
+          '--dump-single-json',
+          '--no-warnings',
+          '--no-check-certificates',
+          '--no-playlist',
+        ];
 
-    let jsonData = '';
-    let errorData = '';
+        if (withCookies) {
+          args.push('--cookies', COOKIES_PATH);
+        }
 
-    ytdlpProcess.stdout.on('data', (data) => {
-      jsonData += data.toString();
-    });
+        args.push(url);
 
-    ytdlpProcess.stderr.on('data', (data) => {
-      errorData += data.toString();
-      console.error('yt-dlp stderr:', data.toString());
-    });
+        const process = spawn(YT_DLP_PATH, args);
+        let jsonData = '';
+        let errorData = '';
 
-    ytdlpProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('yt-dlp process exited with code:', code);
-        console.error('Error output:', errorData);
-        return res.status(404).json({ 
+        process.stdout.on('data', (data) => jsonData += data.toString());
+        process.stderr.on('data', (data) => errorData += data.toString());
+
+        process.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(errorData || 'Process exited with code ' + code));
+          } else {
+            resolve(jsonData);
+          }
+        });
+      });
+    };
+
+    // Try with cookies first (best for private/restricted)
+    let metadata;
+    try {
+      console.log('Trying with cookies...');
+      const jsonOutput = await fetchInfo(true);
+      metadata = JSON.parse(jsonOutput);
+    } catch (cookieError) {
+      console.warn('Failed with cookies, retrying without...', cookieError.message.split('\n')[0]);
+      // Retry without cookies (best for public/shared links)
+      try {
+        const jsonOutput = await fetchInfo(false);
+        metadata = JSON.parse(jsonOutput);
+      } catch (noCookieError) {
+        console.error('Failed without cookies too:', noCookieError.message);
+        
+        // Provide user-friendly error
+        let userMessage = 'Could not extract media URL.';
+        const errorMsg = (cookieError.message + noCookieError.message).toLowerCase();
+        
+        if (errorMsg.includes('login') || errorMsg.includes('private')) {
+          userMessage = 'This post appears to be private or requires login.';
+        } else if (errorMsg.includes('not found')) {
+          userMessage = 'Post not found. It may have been deleted.';
+        }
+
+        return res.status(404).json({
           success: false,
-          error: 'Could not extract media URL. The post might be private or have restricted access.',
-          details: errorData
+          error: userMessage,
+          details: noCookieError.message
         });
       }
+    }
 
-      try {
-        const metadata = JSON.parse(jsonData);
+
+
         
         // Helper function to parse upload date format (YYYYMMDD)
         const parseUploadDate = (dateString) => {
@@ -229,16 +265,9 @@ export const getInstagramMediaInfo = async (req, res) => {
         };
 
         console.log('Instagram media info retrieved successfully');
+
+        console.log('Instagram media info retrieved successfully');
         res.status(200).json(formattedResponse);
-      } catch (parseError) {
-        console.error('Error parsing JSON:', parseError);
-        res.status(500).json({ 
-          success: false,
-          error: 'Failed to parse media information',
-          details: parseError.message
-        });
-      }
-    });
 
   } catch (error) {
     console.error('Instagram Info Error:', error);
