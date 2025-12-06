@@ -68,10 +68,25 @@ export const getFacebookVideoInfo = async (req, res) => {
       if (code !== 0) {
         console.error('yt-dlp process exited with code:', code);
         console.error('Error output:', errorData);
-        return res.status(500).json({ 
+        
+        // Check for specific error types
+        let userMessage = 'Failed to fetch video information';
+        
+        if (errorData.toLowerCase().includes('login') || 
+            errorData.toLowerCase().includes('sign in') ||
+            errorData.toLowerCase().includes('private')) {
+          userMessage = 'This video is private or requires login. Only public Facebook videos can be downloaded.';
+        } else if (errorData.toLowerCase().includes('not available') ||
+                   errorData.toLowerCase().includes('removed')) {
+          userMessage = 'This video is not available or has been removed.';
+        } else if (errorData.toLowerCase().includes('age')) {
+          userMessage = 'This video is age-restricted and cannot be downloaded.';
+        }
+        
+        return res.status(400).json({ 
           success: false,
-          error: 'Failed to fetch Facebook video information',
-          details: errorData
+          error: userMessage,
+          hint: 'Only public Facebook videos can be downloaded without login'
         });
       }
 
