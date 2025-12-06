@@ -110,23 +110,40 @@ export const getVideoInfo = async (req, res) => {
       thumbnail: data.thumbnail || data.thumbnails?.[0]?.url || ''
     };
 
-    // Process video formats
+    // Process video formats - RapidAPI returns them in different structure
     const videoFormats = [];
-    if (data.videos && Array.isArray(data.videos)) {
-      data.videos.forEach(video => {
-        const quality = video.quality || video.qualityLabel || 'unknown';
+    const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p'];
+    
+    // Check both 'videos' and 'links' fields for video URLs
+    const videosList = data.videos || data.links || [];
+    
+    if (videosList && Array.isArray(videosList) && videosList.length > 0) {
+      videosList.forEach(video => {
+        // Extract quality label
+        let qualityLabel = video.quality || video.qualityLabel || video.quality_label || '';
         
-        videoFormats.push({
-          itag: video.itag || video.url,
-          qualityLabel: quality,
-          quality: parseInt(quality) || 0,
-          hasAudio: video.hasAudio !== false,
-          url: video.url,
-          mimeType: video.mimeType || 'video/mp4',
-          contentLength: video.contentLength || null,
-          width: video.width || null,
-          height: video.height || null
-        });
+        // Sometimes quality is like "720p60", convert to "720p"
+        const qualityMatch = qualityLabel.match(/(\d+p)/);
+        if (qualityMatch) {
+          qualityLabel = qualityMatch[1];
+        }
+        
+        // Extract numeric quality for sorting
+        const qualityNum = parseInt(qualityLabel) || 0;
+        
+        if (qualityLabel && video.url) {
+          videoFormats.push({
+            itag: video.itag || video.id || qualityLabel,
+            qualityLabel: qualityLabel,
+            quality: qualityNum,
+            hasAudio: video.hasAudio !== false,
+            url: video.url,
+            mimeType: video.mimeType || video.type || 'video/mp4',
+            contentLength: video.contentLength || video.size || null,
+            width: video.width || null,
+            height: video.height || qualityNum
+          });
+        }
       });
     }
 
@@ -135,25 +152,34 @@ export const getVideoInfo = async (req, res) => {
 
     // Process audio formats
     const audioFormats = [];
-    if (data.audios && Array.isArray(data.audios)) {
-      data.audios.forEach(audio => {
-        const bitrate = parseInt(audio.bitrate) || parseInt(audio.audioBitrate) || 128;
+    const audiosList = data.audios || data.audioLinks || [];
+    
+    if (audiosList && Array.isArray(audiosList) && audiosList.length > 0) {
+      audiosList.forEach(audio => {
+        const bitrate = parseInt(audio.bitrate) || parseInt(audio.audioBitrate) || parseInt(audio.quality) || 128;
         
-        audioFormats.push({
-          bitrate: bitrate,
-          url: audio.url,
-          mimeType: audio.mimeType || 'audio/mp4',
-          contentLength: audio.contentLength || null
-        });
+        if (audio.url) {
+          audioFormats.push({
+            bitrate: bitrate,
+            url: audio.url,
+            mimeType: audio.mimeType || audio.type || 'audio/mp4',
+            contentLength: audio.contentLength || audio.size || null
+          });
+        }
+      });
+      
+      // Sort by bitrate descending
+      audioFormats.sort((a, b) => b.bitrate - a.bitrate);
+    }
+
+    // If no audio URLs from API, just show available bitrates (without URLs)
+    if (audioFormats.length === 0) {
+      [96, 128, 160, 192, 256, 320].forEach(bitrate => {
+        audioFormats.push({ bitrate, isTranscoded: true, url: null });
       });
     }
 
-    // If no audios from API, provide standard bitrates
-    if (audioFormats.length === 0) {
-      [96, 128, 160, 192, 256, 320].forEach(bitrate => {
-        audioFormats.push({ bitrate, isTranscoded: true });
-      });
-    }
+    console.log(`Found ${videoFormats.length} video formats and ${audioFormats.length} audio formats`);
 
     res.status(200).json({
       success: true,
@@ -301,7 +327,8 @@ export const downloadAudioGet = async (req, res) => {
         headers: {
           'x-rapidapi-host': RAPIDAPI_HOST,
           'x-rapidapi-key': RAPIDAPI_KEY
-        }
+        },
+        timeout: 30000
       }
     );
 
@@ -311,28 +338,45 @@ export const downloadAudioGet = async (req, res) => {
 
     let downloadUrl;
 
+    // Check both 'audios' and 'audioLinks' fields
+    const audiosList = data.audios || data.audioLinks || [];
+    
+    console.log(`Found ${audiosList.length} audio formats in API response`);
+
     // Find audio format closest to requested bitrate
-    if (data.audios && data.audios.length > 0) {
-      const sorted = data.audios.sort((a, b) => {
-        const aBitrate = parseInt(a.bitrate) || parseInt(a.audioBitrate) || 128;
-        const bBitrate = parseInt(b.bitrate) || parseInt(b.audioBitrate) || 128;
+    if (audiosList && audiosList.length > 0) {
+      const sorted = audiosList.sort((a, b) => {
+        const aBitrate = parseInt(a.bitrate) || parseInt(a.audioBitrate) || parseInt(a.quality) || 128;
+        const bBitrate = parseInt(b.bitrate) || parseInt(b.audioBitrate) || parseInt(b.quality) || 128;
         return Math.abs(aBitrate - targetBitrate) - Math.abs(bBitrate - targetBitrate);
       });
-      downloadUrl = sorted[0].url;
+      downloadUrl = sorted[0]?.url;
+    }
+
+    // Fallback: try to get ANY audio URL from the response
+    if (!downloadUrl && data.links) {
+      const audioLink = data.links.find(link => link.type?.includes('audio') || link.format?.includes('audio'));
+      downloadUrl = audioLink?.url;
     }
 
     if (!downloadUrl) {
-      return res.status(404).json({ error: 'Audio download URL not found' });
+      console.error('No audio URL found in API response. Available data:', JSON.stringify(data, null, 2));
+      return res.status(404).json({ 
+        error: 'Audio download not available for this video',
+        message: 'The API did not return audio download links. Try a different video or quality.'
+      });
     }
 
     const filename = safeFilename(videoTitle, `${targetBitrate}k`, 'mp3');
+
+    console.log(`Redirecting to audio download URL`);
 
     // Redirect to the download URL
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.redirect(downloadUrl);
 
   } catch (error) {
-    console.error('Audio Download Error:', error);
+    console.error('Audio Download Error:', error.response?.data || error.message);
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Audio download failed',
