@@ -5,6 +5,9 @@ import { pipeline } from 'stream';
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
+// Path to Facebook cookies file
+const COOKIES_PATH = './cookies-fb/cookies.txt';
+
 // Utility function to create safe filenames (Windows-safe, similar to YouTube controller)
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
   const raw = (title || 'video').toString();
@@ -49,6 +52,7 @@ export const getFacebookVideoInfo = async (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       '--dump-single-json',
       '--no-warnings',
+      '--cookies', COOKIES_PATH,  // Use Facebook cookies
       url
     ]);
 
@@ -274,6 +278,7 @@ export const downloadFacebookVideo = (req, res) => {
     const args = [
       url,
       '--output', '-',
+      '--cookies', COOKIES_PATH,        // Use Facebook cookies
       '--buffer-size', '16M',           // Large buffer for faster downloads
       '--http-chunk-size', '10M',       // Download in large chunks
       '--concurrent-fragments', '5',     // Download multiple fragments simultaneously
@@ -372,6 +377,7 @@ export const mergeFacebookVideoAudio = (req, res) => {
     const commonArgs = [
       url,
       '--output', '-',
+      '--cookies', COOKIES_PATH,    // Use Facebook cookies
       '--no-progress',
       '--quiet',
       '--retries', '10',
@@ -499,6 +505,7 @@ export const downloadFacebookAudio = (req, res) => {
       url,
       '-f', 'bestaudio',      // Get best audio quality
       '-o', '-',              // Output to stdout
+      '--cookies', COOKIES_PATH,  // Use Facebook cookies
       '--buffer-size', '16M', // Large buffer for speed
       '--http-chunk-size', '10M',
       '--no-progress',
