@@ -273,7 +273,12 @@ export const downloadFacebookVideo = (req, res) => {
 
     const args = [
       url,
-      '--output', '-'
+      '--output', '-',
+      '--buffer-size', '16M',           // Large buffer for faster downloads
+      '--http-chunk-size', '10M',       // Download in large chunks
+      '--concurrent-fragments', '5',     // Download multiple fragments simultaneously
+      '--retries', '10',                 // More retries for reliability
+      '--fragment-retries', '10'
     ];
 
     if (selectedFormatId) {
@@ -489,11 +494,13 @@ export const downloadFacebookAudio = (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Accept-Ranges', 'none');
 
-    // First, use yt-dlp to get the best audio stream (without conversion)
+    // First, use yt-dlp to get the best audio stream (with optimization)
     const ytdlpStream = spawn(YT_DLP_PATH, [
       url,
-      '-f', 'bestaudio', // Get best audio quality
-      '-o', '-', // Output to stdout
+      '-f', 'bestaudio',      // Get best audio quality
+      '-o', '-',              // Output to stdout
+      '--buffer-size', '16M', // Large buffer for speed
+      '--http-chunk-size', '10M',
       '--no-progress',
       '--quiet'
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
