@@ -1,13 +1,19 @@
 import { spawn } from 'child_process';
-import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
-import * as cheerio from 'cheerio';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { fileURLToPath } from 'url';
+
+// Define __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
-// Path to Twitter cookies file
-const COOKIES_PATH = './cookies-tw/cookies.txt';
+// Path to Twitter cookies file - use absolute path
+const COOKIES_PATH = path.join(__dirname, '../cookies-tw/cookies.txt');
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
@@ -40,6 +46,8 @@ export const getTwitterMediaInfo = async (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       '--dump-single-json',
       '--no-warnings',
+      '--cookies', COOKIES_PATH,
+      '--no-check-certificates',
       url
     ]);
 
@@ -107,7 +115,7 @@ export const getTwitterMediaInfo = async (req, res) => {
         const videoOnlyFormats = allFormats.filter(f => f.vcodec !== 'none' && f.height);
         console.log('Available video formats:', videoOnlyFormats.map(f => ({ id: f.format_id, height: f.height, hasAudio: f.acodec !== 'none' })));
         
-        // Define standard quality options for Twitter
+        // Define standard quality options for Twitter (including higher qualities)
         const standardQualities = [
           { label: '144p', height: 144, selector: 'worst[height>=144]/best[height<=240]/best' },
           { label: '240p', height: 240, selector: 'best[height<=240]/worst[height>=240]/best' },
@@ -140,7 +148,12 @@ export const getTwitterMediaInfo = async (req, res) => {
           }
           
           const existingFormat = qualityMap.get(qualityLabel);
-          if (!existingFormat || (f.tbr || 0) > (existingFormat.tbr || 0)) {
+          // Prefer MP4 and formats with audio
+          const isBetter = !existingFormat || 
+                          ((f.ext === 'mp4' && existingFormat.ext !== 'mp4')) || 
+                          ((f.tbr || 0) > (existingFormat.tbr || 0));
+
+          if (isBetter) {
             qualityMap.set(qualityLabel, {
               itag: f.format_id,
               qualityLabel,
@@ -152,7 +165,8 @@ export const getTwitterMediaInfo = async (req, res) => {
               contentLength: f.filesize,
               width: f.width,
               height: f.height,
-              tbr: f.tbr || 0
+              tbr: f.tbr || 0,
+              ext: f.ext
             });
           }
         });
@@ -236,9 +250,10 @@ export const getTwitterMediaInfo = async (req, res) => {
 };
 
 /**
- * Download Twitter video using yt-dlp
+ * Download Twitter video using yt-dlp with temp file strategy
  */
-export const downloadTwitterVideo = (req, res) => {
+export const downloadTwitterVideo = async (req, res) => {
+  let tempFilePath = null;
   try {
     const { url, itag, format_id, title } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
@@ -249,59 +264,88 @@ export const downloadTwitterVideo = (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const filename = safeFilename(title || 'twitter_media', '', 'mp4');
-    
-    // Set response headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'video/mp4');
+    const cleanTitle = safeFilename(title || 'twitter_media', '', 'mp4');
+    const tempFileName = `twitter_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    tempFilePath = path.join(os.tmpdir(), tempFileName);
+
+    console.log(`Downloading Twitter video to temp file: ${tempFilePath}`);
 
     const args = [
       url,
-      '--output', '-'
+      '--cookies', COOKIES_PATH,
+      '--no-check-certificates',
+      '--no-warnings',
+      '--output', tempFilePath
     ];
 
     if (selectedFormatId) {
       // Handle both specific format IDs and generic quality selectors
       if (selectedFormatId.includes('[') || selectedFormatId.includes('best') || selectedFormatId.includes('worst') || selectedFormatId.includes('/')) {
-        // Generic format selector (like "best[height<=480]/worst[height>=480]/best")
         args.splice(1, 0, '--format', selectedFormatId);
       } else {
-        // Specific format ID
         args.splice(1, 0, '--format', selectedFormatId);
       }
     }
 
     const ytdlpProcess = spawn(YT_DLP_PATH, args);
 
-    ytdlpProcess.stdout.pipe(res);
+    let stderrData = '';
 
     ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
-    });
-
-    ytdlpProcess.on('error', (error) => {
-      console.error('Process error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Download process failed' });
+      stderrData += data.toString();
+      if (data.toString().toLowerCase().includes('error')) {
+         console.error('yt-dlp stderr:', data.toString());
       }
     });
 
     ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
         console.error('yt-dlp process exited with code:', code);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Download failed' });
+        console.error('Full stderr:', stderrData);
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try { fs.unlinkSync(tempFilePath); } catch (e) {}
         }
+        if (!res.headersSent) {
+          return res.status(500).json({ error: 'Download process failed.' });
+        }
+        return;
       }
-      console.log('Twitter download completed');
+
+      console.log('Twitter download completed locally.');
+
+      if (fs.existsSync(tempFilePath)) {
+         res.download(tempFilePath, cleanTitle, (err) => {
+           if (err) {
+             console.error('Error sending file:', err);
+             if (!res.headersSent) res.status(500).send('Error downloading file');
+           }
+           
+           // Cleanup temp file
+           try {
+             fs.unlinkSync(tempFilePath);
+           } catch (unlinkErr) {
+             console.error('Failed to delete temp file:', unlinkErr);
+           }
+         });
+      } else {
+        console.error('Temp file not found after success code:', tempFilePath);
+        if (!res.headersSent) res.status(500).json({ error: 'Downloaded file not found.' });
+      }
     });
 
-    req.on('close', () => {
-      ytdlpProcess.kill();
+    ytdlpProcess.on('error', (err) => {
+        console.error('Failed to start yt-dlp:', err);
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try { fs.unlinkSync(tempFilePath); } catch (e) {}
+        }
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to start download process.' });
     });
 
   } catch (error) {
     console.error('Twitter Download Error:', error);
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -312,112 +356,77 @@ export const downloadTwitterVideo = (req, res) => {
 };
 
 /**
- * Download Twitter audio using yt-dlp and ffmpeg
+ * Download Twitter audio using yt-dlp and ffmpeg with temp file strategy
  */
 export const downloadTwitterAudio = (req, res) => {
+  let tempFilePath = null;
   try {
     const { url, bitrate, title } = req.query;
     const quality = `${bitrate}k`;
-    const filename = safeFilename(title, quality, 'mp3');
+    const cleanTitle = safeFilename(title, quality, 'mp3');
     
-    console.log(`Downloading Twitter MP3 audio: ${url} at ${bitrate}kbps`);
-    
-    // Set proper headers for streaming MP3 download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Create temp file path
+    const tempFileName = `twitter_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
+    tempFilePath = path.join(os.tmpdir(), tempFileName);
 
-    // Twitter videos have integrated audio, so we get the best video format and extract audio
-    const ytdlpStream = spawn(YT_DLP_PATH, [
+    console.log(`Downloading Twitter MP3 audio to temp file: ${tempFilePath} at ${bitrate}kbps`);
+
+    // We can use yt-dlp's built-in audio extraction to save to a file
+    const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
-      '-f', 'best', // Get best overall format (video with audio)
-      '-o', '-' // Output to stdout
+      '--cookies', COOKIES_PATH,
+      '--no-check-certificates',
+      '--extract-audio',
+      '--audio-format', 'mp3',
+      '--audio-quality', `${bitrate}k`,
+      '--ffmpeg-location', ffmpegStatic,
+      '--output', tempFilePath
     ]);
 
-    // Then pipe through FFmpeg to convert to MP3 with specified bitrate
-    const ffmpegStream = spawn(ffmpegStatic, [
-      '-i', 'pipe:0', // Input from stdin (yt-dlp output)
-      '-vn', // No video
-      '-acodec', 'libmp3lame', // Use MP3 encoder
-      '-b:a', `${bitrate}k`, // Set audio bitrate
-      '-ar', '44100', // Set sample rate
-      '-ac', '2', // Stereo audio
-      '-f', 'mp3', // Output format
-      '-write_xing', '0', // Disable Xing header for streaming
-      'pipe:1' // Output to stdout
-    ]);
-
-    // Pipe yt-dlp output to FFmpeg input
-    ytdlpStream.stdout.pipe(ffmpegStream.stdin);
-    
-    // Pipe FFmpeg output to response
-    ffmpegStream.stdout.pipe(res);
-
-    // Track if data has been sent
-    let dataSent = false;
-    ffmpegStream.stdout.on('data', () => {
-      dataSent = true;
+    let stderrData = '';
+    ytdlpProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
     });
 
-    // Error handling for yt-dlp
-    ytdlpStream.stderr.on('data', (data) => {
-      const message = data.toString();
-      if (message.toLowerCase().includes('error')) {
-        console.error(`yt-dlp stderr: ${message}`);
-      }
-    });
-
-    ytdlpStream.on('error', (err) => {
-      console.error('yt-dlp process error:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Audio download failed.');
-      }
-    });
-
-    ytdlpStream.on('close', (code) => {
+    ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error(`yt-dlp exited with code ${code}`);
-      }
-    });
-
-    // Error handling for FFmpeg
-    ffmpegStream.stderr.on('data', (data) => {
-      const message = data.toString();
-      if (message.toLowerCase().includes('error')) {
-        console.error(`FFmpeg stderr: ${message}`);
-      }
-    });
-
-    ffmpegStream.on('error', (err) => {
-      console.error('FFmpeg process error:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Audio conversion failed.');
-      } else if (!dataSent) {
-        res.end();
-      }
-    });
-
-    ffmpegStream.on('close', (code) => {
-      if (code === 0) {
-        console.log(`Twitter MP3 download completed: ${filename}`);
-      } else {
-        console.error(`FFmpeg exited with code ${code}`);
-        if (!res.headersSent) {
-          res.status(500).send('Audio conversion failed.');
+        console.error('yt-dlp audio extract exited with code:', code);
+        console.error('Middleware stderr:', stderrData);
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+           try { fs.unlinkSync(tempFilePath); } catch (e) {}
         }
+        if (!res.headersSent) {
+          return res.status(500).send('Audio download failed.');
+        }
+        return;
       }
-    });
 
-    // Kill processes if client disconnects
-    req.on('close', () => {
-      try { ytdlpStream.kill(); } catch {}
-      try { ffmpegStream.kill(); } catch {}
+      console.log('Twitter audio extraction completed locally.');
+
+      if (fs.existsSync(tempFilePath)) {
+         res.download(tempFilePath, cleanTitle, (err) => {
+           if (err) {
+             console.error('Error sending audio:', err);
+             if (!res.headersSent) res.status(500).send('Error downloading audio');
+           }
+           
+           try {
+             fs.unlinkSync(tempFilePath);
+           } catch (unlinkErr) {
+             console.error('Failed to delete temp audio file:', unlinkErr);
+           }
+         });
+      } else {
+        console.error('Temp audio file not found:', tempFilePath);
+        if (!res.headersSent) res.status(500).send('Audio file not found.');
+      }
     });
 
   } catch (error) {
     console.error('Twitter Audio Download Error:', error);
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
