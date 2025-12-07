@@ -23,7 +23,7 @@ router.post('/download', validateUrl, downloadInstagramVideo);
 router.get('/download-video', downloadInstagramVideo);
 router.post('/download-video', validateUrl, downloadInstagramVideo);
 router.get('/merge', mergeInstagramVideoAudio);
-router.get('/download-audio', downloadInstagramVideo);
+router.get('/download-audio', downloadInstagramAudio);
 
 // Thumbnail proxy endpoint
 router.get('/thumbnail', getInstagramThumbnail);

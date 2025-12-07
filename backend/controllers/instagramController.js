@@ -7,7 +7,7 @@ import axios from 'axios';
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
 // Path to Instagram cookies file
-const COOKIES_PATH = './cookies-ig/cookies.txt';
+const COOKIES_PATH = path.resolve(process.cwd(), 'cookies-ig', 'cookies.txt');
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
@@ -379,7 +379,7 @@ export const mergeInstagramVideoAudio = (req, res) => {
     const ytdlpArgs = [
       url,
       '--format', `${vItag}+${aItag}`,
-      // '--cookies', COOKIES_PATH, // Removed to fix 0KB issues
+      '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
       '--no-warnings',
@@ -488,6 +488,7 @@ export const downloadInstagramAudio = (req, res) => {
     // First, use yt-dlp to get the best audio stream (without conversion)
     const ytdlpStream = spawn(YT_DLP_PATH, [
       url,
+      '--cookies', COOKIES_PATH, // Ensure cookies are used for audio too
       '-f', 'bestaudio', // Get best audio quality
       '-o', '-' // Output to stdout
     ]);
