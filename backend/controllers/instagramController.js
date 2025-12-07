@@ -1,13 +1,20 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import ffmpegStatic from 'ffmpeg-static';
 import axios from 'axios';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
 // Path to Instagram cookies file
-const COOKIES_PATH = path.resolve(process.cwd(), 'cookies-ig', 'cookies.txt');
+const COOKIES_PATH = path.join(__dirname, '../cookies-ig/cookies.txt');
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {
@@ -364,103 +371,94 @@ export const downloadInstagramVideo = async (req, res) => {
   }
 };
 
-export const mergeInstagramVideoAudio = (req, res) => {
+export const mergeInstagramVideoAudio = async (req, res) => {
+  let tempFilePath = null;
   try {
     const { url, vItag, aItag, title } = req.query;
-    const filename = safeFilename(title || 'instagram_video', '', 'mp4');
+    const cleanTitle = safeFilename(title || 'instagram_video', '', 'mp4');
     
     console.log(`Merging Instagram video+audio: vItag=${vItag}, aItag=${aItag}`);
-    
-    // Set response headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'video/mp4');
 
-    // Use yt-dlp to get merged streams in Matroska format (better for AV1)
+    // Create a temporary file path
+    const tempFileName = `insta_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    tempFilePath = path.join(os.tmpdir(), tempFileName);
+    
+    console.log(`Downloading to temp file: ${tempFilePath}`);
+
+    // Use yt-dlp to download and merge to a file properly
+    // Note: yt-dlp automatically handles the merging when format is v+a
     const ytdlpArgs = [
       url,
-      '--format', `${vItag}+${aItag}`,
+      '--format', `${vItag}+${aItag}`, // Request merged format
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
       '--no-warnings',
       '--ffmpeg-location', ffmpegStatic,
-      '--merge-output-format', 'mkv', // Use Matroska format
-      '--output', '-'
+      '--merge-output-format', 'mp4', // Ensure output is mp4
+      '--output', tempFilePath
     ];
 
     const ytdlpProcess = spawn(YT_DLP_PATH, ytdlpArgs);
 
-    // Use FFmpeg to convert Matroska to streamable MP4 with both video and audio
-    const ffmpegProcess = spawn(ffmpegStatic, [
-      '-i', 'pipe:0', // Input from yt-dlp (MKV format)
-      '-c:v', 'copy', // Copy video stream without re-encoding 
-      '-c:a', 'copy', // Copy audio stream without re-encoding
-      '-f', 'mp4', // Force MP4 output format
-      '-movflags', 'frag_keyframe+empty_moov', // Make it streamable
-      '-avoid_negative_ts', 'make_zero', // Fix timestamp issues
-      'pipe:1' // Output to stdout
-    ]);
+    let stderrData = '';
 
-    // Pipe yt-dlp MKV output through FFmpeg to get proper MP4
-    ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
-    
-    // Pipe final MP4 output to response
-    ffmpegProcess.stdout.pipe(res);
-
-    // Error handling for yt-dlp
     ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
-    });
-
-    ytdlpProcess.on('error', (error) => {
-      console.error('yt-dlp process error:', error);
-      ffmpegProcess.kill();
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Video extraction failed' });
+      stderrData += data.toString();
+      // Only log errors, not progress
+      if (data.toString().toLowerCase().includes('error')) {
+         console.error('yt-dlp stderr:', data.toString());
       }
     });
 
     ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
         console.error('yt-dlp process exited with code:', code);
-        ffmpegProcess.kill();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Video extraction failed' });
+        console.error('Full stderr:', stderrData);
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try { fs.unlinkSync(tempFilePath); } catch (e) {}
         }
+        if (!res.headersSent) {
+          return res.status(500).json({ error: 'Video merge failed during download.' });
+        }
+        return;
       }
-    });
 
-    // Error handling for FFmpeg
-    ffmpegProcess.stderr.on('data', (data) => {
-      console.error('FFmpeg stderr:', data.toString());
-    });
+      console.log('Download and merge completed locally.');
 
-    ffmpegProcess.on('error', (error) => {
-      console.error('FFmpeg process error:', error);
-      ytdlpProcess.kill();
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Video conversion failed' });
-      }
-    });
-
-    ffmpegProcess.on('close', (code) => {
-      if (code === 0) {
-        console.log('Instagram MP4 conversion completed successfully');
+      if (fs.existsSync(tempFilePath)) {
+         // Send the file to the user
+         res.download(tempFilePath, cleanTitle, (err) => {
+           // Callback after download completes or fails
+           if (err) {
+             console.error('Error sending file:', err);
+             if (!res.headersSent) res.status(500).send('Error downloading file');
+           }
+           
+           // Cleanup: Delete the temp file
+           try {
+             fs.unlinkSync(tempFilePath);
+             console.log('Temp file cleaned up:', tempFilePath);
+           } catch (unlinkErr) {
+             console.error('Failed to delete temp file:', unlinkErr);
+           }
+         });
       } else {
-        console.error('FFmpeg process exited with code:', code);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Video conversion failed' });
-        }
+        console.error('Temp file not found after success code:', tempFilePath);
+        if (!res.headersSent) res.status(500).json({ error: 'Merged file not found.' });
       }
     });
 
-    req.on('close', () => {
-      ytdlpProcess.kill();
-      ffmpegProcess.kill();
+    ytdlpProcess.on('error', (err) => {
+        console.error('Failed to start yt-dlp:', err);
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to start download process.' });
     });
 
   } catch (error) {
     console.error('Instagram Merge Error:', error);
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
