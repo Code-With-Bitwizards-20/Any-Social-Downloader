@@ -138,14 +138,31 @@ export const getYoutubeVideoInfo = async (req, res) => {
 
     const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '4k'];
     standardQualities.forEach(quality => {
-      const format = qualityMap.get(quality);
-      if (format) {
-        if (format.merge && format.vItag && format.aItag) {
-          format.itag = `${format.vItag}+${format.aItag}`;
-          format.hasAudio = true;
-        }
-        videoFormats.push(format);
+      let format = qualityMap.get(quality);
+      
+      // If quality not available in H.264, create fallback with yt-dlp selector
+      if (!format) {
+        const targetHeight = quality === '4k' ? 2160 : parseInt(quality);
+        const bestAudioItag = bestAudio ? bestAudio.format_id : null;
+        
+        format = {
+          itag: bestAudioItag ? `bestvideo[height<=${targetHeight}]+bestaudio/best` : `best[height<=${targetHeight}]/best`,
+          qualityLabel: quality,
+          quality: targetHeight,
+          hasAudio: true,
+          merge: bestAudioItag ? true : false,
+          fps: null,
+          mimeType: 'video/mp4',
+          contentLength: null,
+          width: null,
+          height: targetHeight
+        };
+      } else if (format.merge && format.vItag && format.aItag) {
+        format.itag = `${format.vItag}+${format.aItag}`;
+        format.hasAudio = true;
       }
+      
+      videoFormats.push(format);
     });
 
     videoFormats.sort((a, b) => {
