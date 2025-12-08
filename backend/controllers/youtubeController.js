@@ -263,38 +263,52 @@ export const downloadAudioGet = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
     res.setHeader('Content-Type', 'audio/mpeg');
 
-    // Extract audio and convert to MP3, stream to stdout
+    // Download video to stdout
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '--audio-quality', `${targetBitrate}k`,
-      '--ffmpeg-location', ffmpegStatic,
+      '-f', 'bestaudio/worst',
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
       '-o', '-'
     ]);
 
-    ytdlpProcess.stdout.pipe(res);
+    // Convert video stream to MP3 using ffmpeg
+    const ffmpegProcess = spawn(ffmpegStatic, [
+      '-i', 'pipe:0',
+      '-vn',
+      '-acodec', 'libmp3lame',
+      '-b:a', `${targetBitrate}k`,
+      '-f', 'mp3',
+      'pipe:1'
+    ]);
+
+    // Pipe yt-dlp output to ffmpeg input
+    ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
+
+    // Pipe ffmpeg output to response
+    ffmpegProcess.stdout.pipe(res);
 
     ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+      console.error('yt-dlp:', data.toString());
     });
 
-    ytdlpProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        res.status(500).json({ error: 'Audio download failed.' });
-      }
+    ffmpegProcess.stderr.on('data', (data) => {
+      console.error('ffmpeg:', data.toString());
     });
 
     ytdlpProcess.on('error', (err) => {
-      console.error('Failed to start yt-dlp:', err);
-      if (!res.headersSent) res.status(500).json({ error: 'Failed to start download.' });
+      console.error('yt-dlp error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Download failed' });
+    });
+
+    ffmpegProcess.on('error', (err) => {
+      console.error('ffmpeg error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Conversion failed' });
     });
 
   } catch (error) {
-    console.error('YouTube Audio Error:', error);
+    console.error('Audio Error:', error);
     if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
   }
 };
