@@ -263,9 +263,11 @@ export const downloadAudioGet = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
     res.setHeader('Content-Type', 'audio/mp4');
 
+    // Use format selector that works even when pure audio doesn't exist
+    // Falls back to smallest video+audio format (still playable as audio)
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
-      '-f', 'bestaudio',
+      '-f', 'bestaudio/b[filesize<50M]/worst',
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
