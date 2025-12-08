@@ -98,9 +98,6 @@ export const getInstagramMediaInfo = async (req, res) => {
       }
     }
 
-
-
-        
         // Helper function to parse upload date format (YYYYMMDD)
         const parseUploadDate = (dateString) => {
           if (!dateString) return null;
@@ -162,12 +159,6 @@ export const getInstagramMediaInfo = async (req, res) => {
         const bestAudio = audioFormats.length > 0 ? audioFormats[0] : null;
         
         console.log('Available video formats:', videoOnlyFormats.map(f => ({ id: f.format_id, height: f.height, hasAudio: f.acodec !== 'none' })));
-        console.log('Best audio format:', bestAudio ? bestAudio.format_id : 'None');
-        console.log('Thumbnail extracted:', videoDetails.thumbnail ? 'Success' : 'Failed');
-        console.log('Like count:', metadata.like_count, 'View count:', metadata.view_count, 'Final viewCount:', videoDetails.viewCount);
-        if (metadata.thumbnails && metadata.thumbnails.length > 0) {
-          console.log('Available thumbnails:', metadata.thumbnails.map(t => ({ url: t.url ? 'Present' : 'Missing', width: t.width, height: t.height })));
-        }
         
         // Process video formats and map to standard qualities
         const videoFormats = [];
@@ -293,8 +284,6 @@ export const getInstagramMediaInfo = async (req, res) => {
         };
 
         console.log('Instagram media info retrieved successfully');
-
-        console.log('Instagram media info retrieved successfully');
         res.status(200).json(formattedResponse);
 
   } catch (error) {
@@ -311,6 +300,7 @@ export const getInstagramMediaInfo = async (req, res) => {
 export const getInstagramInfo = getInstagramMediaInfo;
 
 export const downloadInstagramVideo = async (req, res) => {
+  let tempFilePath = null;
   try {
     const { url, itag, format_id, title, bitrate } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
@@ -325,11 +315,17 @@ export const downloadInstagramVideo = async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
+    if (isAudio) {
+      return downloadInstagramAudio(req, res);
+    }
+
     const filename = safeFilename(title || 'instagram_media', '', 'mp4');
     
-    // Set response headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'video/mp4');
+    // Temp file for downloading
+    const tempFileName = `insta_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    tempFilePath = path.join(os.tmpdir(), tempFileName);
+    
+    console.log(`Downloading Instagram video to temp file: ${tempFilePath}`);
 
     const args = [
       url,
@@ -339,7 +335,7 @@ export const downloadInstagramVideo = async (req, res) => {
       '--concurrent-fragments', '10',
       '--no-check-certificates',
       '-S', 'vcodec:h264,res,acodec:m4a', // Prefer H.264
-      '--output', '-'
+      '--output', tempFilePath
     ];
 
     if (selectedFormatId) {
@@ -354,36 +350,34 @@ export const downloadInstagramVideo = async (req, res) => {
     }
 
     const ytdlpProcess = spawn(YT_DLP_PATH, args);
+    let stderrData = '';
 
-    ytdlpProcess.stdout.pipe(res);
-
-    ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
-    });
-
-    ytdlpProcess.on('error', (error) => {
-      console.error('Process error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Download process failed' });
-      }
-    });
+    ytdlpProcess.stderr.on('data', (data) => stderrData += data.toString());
 
     ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
         console.error('yt-dlp process exited with code:', code);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Download failed' });
-        }
+        console.error('Full stderr:', stderrData);
+        if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+        if (!res.headersSent) return res.status(500).json({ error: 'Download failed' });
+        return;
       }
-      console.log('Instagram download completed');
-    });
-
-    req.on('close', () => {
-      ytdlpProcess.kill();
+      
+      console.log('Instagram download completed localy.');
+      
+      if (fs.existsSync(tempFilePath)) {
+         res.download(tempFilePath, filename, (err) => {
+           if (err) console.error('Error sending file:', err);
+           try { fs.unlinkSync(tempFilePath); } catch (e) {}
+         });
+      } else {
+        if (!res.headersSent) res.status(500).json({ error: 'File not found.' });
+      }
     });
 
   } catch (error) {
     console.error('Instagram Download Error:', error);
+    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -402,13 +396,12 @@ export const mergeInstagramVideoAudio = async (req, res) => {
     console.log(`Merging Instagram video+audio: vItag=${vItag}, aItag=${aItag}`);
 
     // Create a temporary file path
-    const tempFileName = `insta_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const tempFileName = `insta_merge_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
     tempFilePath = path.join(os.tmpdir(), tempFileName);
     
-    console.log(`Downloading to temp file: ${tempFilePath}`);
+    console.log(`Downloading and merging to temp file: ${tempFilePath}`);
 
     // Use yt-dlp to download and merge to a file properly
-    // Note: yt-dlp automatically handles the merging when format is v+a
     const ytdlpArgs = [
       url,
       '--format', `${vItag}+${aItag}`, // Request merged format
@@ -438,12 +431,8 @@ export const mergeInstagramVideoAudio = async (req, res) => {
       if (code !== 0) {
         console.error('yt-dlp process exited with code:', code);
         console.error('Full stderr:', stderrData);
-        if (tempFilePath && fs.existsSync(tempFilePath)) {
-            try { fs.unlinkSync(tempFilePath); } catch (e) {}
-        }
-        if (!res.headersSent) {
-          return res.status(500).json({ error: 'Video merge failed during download.' });
-        }
+        if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+        if (!res.headersSent) return res.status(500).json({ error: 'Video merge failed during download.' });
         return;
       }
 
@@ -453,18 +442,8 @@ export const mergeInstagramVideoAudio = async (req, res) => {
          // Send the file to the user
          res.download(tempFilePath, cleanTitle, (err) => {
            // Callback after download completes or fails
-           if (err) {
-             console.error('Error sending file:', err);
-             if (!res.headersSent) res.status(500).send('Error downloading file');
-           }
-           
-           // Cleanup: Delete the temp file
-           try {
-             fs.unlinkSync(tempFilePath);
-             console.log('Temp file cleaned up:', tempFilePath);
-           } catch (unlinkErr) {
-             console.error('Failed to delete temp file:', unlinkErr);
-           }
+           if (err) console.error('Error sending file:', err);
+           try { fs.unlinkSync(tempFilePath); } catch (e) {}
          });
       } else {
         console.error('Temp file not found after success code:', tempFilePath);
@@ -479,9 +458,7 @@ export const mergeInstagramVideoAudio = async (req, res) => {
 
   } catch (error) {
     console.error('Instagram Merge Error:', error);
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch (e) {}
-    }
+    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -492,110 +469,51 @@ export const mergeInstagramVideoAudio = async (req, res) => {
 };
 
 export const downloadInstagramAudio = (req, res) => {
+  let tempFilePath = null;
   try {
     const { url, bitrate, title } = req.query;
-    const quality = `${bitrate}k`;
-    const filename = safeFilename(title, quality, 'mp3');
+    const targetBitrate = parseInt(bitrate) || 128;
+    const cleanTitle = safeFilename(title || 'instagram_audio', `${targetBitrate}kbps`, 'mp3');
     
-    console.log(`Downloading Instagram MP3 audio: ${url} at ${bitrate}kbps`);
+    // Temp file
+    const tempFileName = `insta_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
+    tempFilePath = path.join(os.tmpdir(), tempFileName);
     
-    // Set proper headers for streaming MP3 download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
+    console.log(`Downloading Instagram MP3 audio to: ${tempFilePath}`);
 
-    // First, use yt-dlp to get the best audio stream (without conversion)
-    const ytdlpStream = spawn(YT_DLP_PATH, [
+    const process = spawn(YT_DLP_PATH, [
       url,
-      '--cookies', COOKIES_PATH, // Ensure cookies are used for audio too
-      '-f', 'bestaudio', // Get best audio quality
-      '-o', '-' // Output to stdout
+      '--extract-audio',
+      '--audio-format', 'mp3',
+      '--audio-quality', `${targetBitrate}k`,
+      '--ffmpeg-location', ffmpegStatic,
+      '--output', tempFilePath,
+      '--cookies', COOKIES_PATH, // Ensure cookies are used
+      '--no-check-certificates',
+      '--no-playlist'
     ]);
 
-    // Then pipe through FFmpeg to convert to MP3 with specified bitrate
-    const ffmpegStream = spawn(ffmpegStatic, [
-      '-i', 'pipe:0', // Input from stdin (yt-dlp output)
-      '-vn', // No video
-      '-acodec', 'libmp3lame', // Use MP3 encoder
-      '-b:a', `${bitrate}k`, // Set audio bitrate
-      '-ar', '44100', // Set sample rate
-      '-ac', '2', // Stereo audio
-      '-f', 'mp3', // Output format
-      '-write_xing', '0', // Disable Xing header for streaming
-      'pipe:1' // Output to stdout
-    ]);
-
-    // Pipe yt-dlp output to FFmpeg input
-    ytdlpStream.stdout.pipe(ffmpegStream.stdin);
-    
-    // Pipe FFmpeg output to response
-    ffmpegStream.stdout.pipe(res);
-
-    // Track if data has been sent
-    let dataSent = false;
-    ffmpegStream.stdout.on('data', () => {
-      dataSent = true;
-    });
-
-    // Error handling for yt-dlp
-    ytdlpStream.stderr.on('data', (data) => {
-      const message = data.toString();
-      if (message.toLowerCase().includes('error')) {
-        console.error(`yt-dlp stderr: ${message}`);
-      }
-    });
-
-    ytdlpStream.on('error', (err) => {
-      console.error('yt-dlp process error:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Audio download failed.');
-      }
-    });
-
-    ytdlpStream.on('close', (code) => {
+    process.on('close', (code) => {
       if (code !== 0) {
-        console.error(`yt-dlp exited with code ${code}`);
+        console.error('Audio download failed with code:', code);
+        if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+        if (!res.headersSent) return res.status(500).json({ error: 'Audio download failed.' });
+        return;
       }
-    });
-
-    // Error handling for FFmpeg
-    ffmpegStream.stderr.on('data', (data) => {
-      const message = data.toString();
-      if (message.toLowerCase().includes('error')) {
-        console.error(`FFmpeg stderr: ${message}`);
-      }
-    });
-
-    ffmpegStream.on('error', (err) => {
-      console.error('FFmpeg process error:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Audio conversion failed.');
-      } else if (!dataSent) {
-        res.end();
-      }
-    });
-
-    ffmpegStream.on('close', (code) => {
-      if (code === 0) {
-        console.log(`Instagram MP3 download completed: ${filename}`);
+      
+      if (fs.existsSync(tempFilePath)) {
+         res.download(tempFilePath, cleanTitle, (err) => {
+           if (err) console.error('Error sending audio file:', err);
+           try { fs.unlinkSync(tempFilePath); } catch (e) {}
+         });
       } else {
-        console.error(`FFmpeg exited with code ${code}`);
-        if (!res.headersSent) {
-          res.status(500).send('Audio conversion failed.');
-        }
+        if (!res.headersSent) res.status(500).json({ error: 'Audio file not found.' });
       }
-    });
-
-    // Kill processes if client disconnects
-    req.on('close', () => {
-      try { ytdlpStream.kill(); } catch {}
-      try { ffmpegStream.kill(); } catch {}
     });
 
   } catch (error) {
     console.error('Instagram Audio Download Error:', error);
+    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -631,25 +549,12 @@ export const getInstagramThumbnail = async (req, res) => {
       timeout: 10000
     });
     
-    // Set appropriate headers before sending
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    
-    // Send the image data
-    res.send(Buffer.from(response.data));
-    console.log('Thumbnail proxy successful');
+    res.setHeader('Content-Type', response.headers['content-type']);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+    res.send(response.data);
     
   } catch (error) {
     console.error('Thumbnail proxy error:', error.message);
-    
-    // Send a default placeholder image or error response
-    res.status(404).json({ error: 'Thumbnail not available' });
+    res.status(404).json({ error: 'Failed to fetch thumbnail' });
   }
 };
-
-// Legacy function name for compatibility
-export const downloadInstagramMedia = downloadInstagramVideo;
