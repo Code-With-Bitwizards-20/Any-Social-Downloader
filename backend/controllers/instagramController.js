@@ -296,8 +296,6 @@ export const getInstagramMediaInfo = async (req, res) => {
   }
 };
 
-// Add alias for consistency with other controllers
-export const getInstagramInfo = getInstagramMediaInfo;
 
 export const downloadInstagramVideo = async (req, res) => {
   let tempFilePath = null;
@@ -558,3 +556,8 @@ export const getInstagramThumbnail = async (req, res) => {
     res.status(404).json({ error: 'Failed to fetch thumbnail' });
   }
 };
+
+// Add alias for consistency with other controllers
+export const getInstagramInfo = getInstagramMediaInfo;
+export const downloadInstagramMedia = downloadInstagramVideo;
+

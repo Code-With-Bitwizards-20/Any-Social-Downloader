@@ -236,6 +236,8 @@ export const downloadVideo = async (req, res) => {
 
 // Also export as getVideoInfo (YouTube convention)
 export const getVideoInfo = getYoutubeVideoInfo;
+export const downloadVideoGet = downloadVideo;
+export const mergeDownloadGet = downloadVideo;
 
 export const downloadAudioGet = async (req, res) => {
   let tempFilePath = null;
