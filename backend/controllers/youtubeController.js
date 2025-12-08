@@ -267,10 +267,7 @@ export const downloadAudioGet = async (req, res) => {
 
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '--audio-quality', `${targetBitrate}k`,
-      '--ffmpeg-location', ffmpegStatic,
+      '-f', 'bestaudio[ext=m4a]/bestaudio/best',
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
