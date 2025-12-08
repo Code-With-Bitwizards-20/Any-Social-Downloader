@@ -145,19 +145,38 @@ export const getVideoInfo = async (req, res) => {
               else if (height >= 240) qualityLabel = '240p';
               else qualityLabel = '144p';
               
-              // Keep best format for each quality
-              if (!qualityMap.has(qualityLabel) || (format.tbr || 0) > (qualityMap.get(qualityLabel).tbr || 0)) {
+              // Keep best format for each quality, prioritizing H.264 (avc1)
+              const existingFormat = qualityMap.get(qualityLabel);
+              const isH264 = format.vcodec && (format.vcodec.includes('avc1') || format.vcodec.includes('h264'));
+              const existingIsH264 = existingFormat && existingFormat.vcodec && (existingFormat.vcodec.includes('avc1') || existingFormat.vcodec.includes('h264'));
+
+              let isBetter = false;
+
+              if (!existingFormat) {
+                isBetter = true;
+              } else if (isH264 && !existingIsH264) {
+                 // Always replace non-H.264 with H.264
+                 isBetter = true;
+              } else if (isH264 === existingIsH264) {
+                 // Use bitrate as tiebreaker if codecs match
+                 if ((format.tbr || 0) > (existingFormat.tbr || 0)) {
+                    isBetter = true;
+                 }
+              }
+
+              if (isBetter) {
                 qualityMap.set(qualityLabel, {
                   itag: format.format_id,
                   qualityLabel: qualityLabel,
                   quality: height,
                   hasAudio: format.acodec && format.acodec !== 'none',
-                  mimeType: format.ext || 'mp4',
+                  mimeType: 'video/mp4', // Enforce generic MP4 mimetype
                   width: format.width || null,
                   height: height,
                   fps: format.fps || null,
                   tbr: format.tbr || 0,
-                  contentLength: format.filesize || format.filesize_approx || null
+                  contentLength: format.filesize || format.filesize_approx || null,
+                  vcodec: format.vcodec
                 });
               }
             }
@@ -270,6 +289,7 @@ export const downloadVideo = async (req, res) => {
       '--no-check-certificates',
       '--no-warnings',
       '--no-playlist',
+      '-S', 'vcodec:h264,res,acodec:m4a', // Prefer H.264/AVC
       '-o', '-',
       videoUrl
     ];

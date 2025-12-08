@@ -117,9 +117,29 @@ export const getTikTokVideoInfo = async (req, res) => {
             qualityLabel = '144p';
           }
           
-          // Only keep the best format for each quality
+          // Only keep the best format for each quality, prioritizing H.264
           const existingFormat = qualityMap.get(qualityLabel);
-          if (!existingFormat || f.tbr > existingFormat.tbr) {
+          
+          // Check if current format is H.264
+          const isH264 = f.vcodec && (f.vcodec.includes('avc1') || f.vcodec.includes('h264'));
+          const existingIsH264 = existingFormat && existingFormat.vcodec && (existingFormat.vcodec.includes('avc1') || existingFormat.vcodec.includes('h264'));
+
+          // Logic to determine if this format is "better"
+          let isBetter = false;
+
+          if (!existingFormat) {
+            isBetter = true;
+          } else if (isH264 && !existingIsH264) {
+            // Always replace non-H.264 with H.264
+            isBetter = true;
+          } else if (isH264 === existingIsH264) {
+            // If both are same codec type (both H.264 or both not), chose higher bitrate
+             if (f.tbr > existingFormat.tbr) {
+                 isBetter = true;
+             }
+          }
+
+          if (isBetter) {
             qualityMap.set(qualityLabel, {
               itag: f.format_id,
               qualityLabel,
@@ -129,11 +149,12 @@ export const getTikTokVideoInfo = async (req, res) => {
               vItag: f.acodec === 'none' && bestAudio ? f.format_id : undefined,
               aItag: f.acodec === 'none' && bestAudio ? bestAudio.format_id : undefined,
               fps: f.fps,
-              mimeType: `video/${f.ext}`,
+              mimeType: `video/mp4`,
               contentLength: f.filesize,
               width: f.width,
               height: f.height,
-              tbr: f.tbr || 0
+              tbr: f.tbr || 0,
+              vcodec: f.vcodec
             });
           }
         });
@@ -252,6 +273,7 @@ export const downloadTikTokVideo = (req, res) => {
     const args = [
       url,
       '--cookies', COOKIES_PATH,
+      '-S', 'vcodec:h264,res', // Prefer H.264
       '--output', '-'
     ];
 
@@ -321,6 +343,7 @@ export const mergeTikTokVideoAudio = (req, res) => {
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
       '--format', `${vItag}+${aItag}`,
+      '-S', 'vcodec:h264,res', // Prefer H.264
       '--ffmpeg-location', ffmpegStatic,
       '--merge-output-format', 'mkv', // Use Matroska format which handles AV1 better
       '--output', '-'

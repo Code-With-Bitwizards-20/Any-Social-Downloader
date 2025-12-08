@@ -148,10 +148,25 @@ export const getTwitterMediaInfo = async (req, res) => {
           }
           
           const existingFormat = qualityMap.get(qualityLabel);
-          // Prefer MP4 and formats with audio
-          const isBetter = !existingFormat || 
-                          ((f.ext === 'mp4' && existingFormat.ext !== 'mp4')) || 
-                          ((f.tbr || 0) > (existingFormat.tbr || 0));
+          
+          // Check if current format is H.264
+          const isH264 = f.vcodec && (f.vcodec.includes('avc1') || f.vcodec.includes('h264'));
+          const existingIsH264 = existingFormat && existingFormat.vcodec && (existingFormat.vcodec.includes('avc1') || existingFormat.vcodec.includes('h264'));
+
+          // Logic to determine if this format is "better"
+          let isBetter = false;
+
+          if (!existingFormat) {
+            isBetter = true;
+          } else if (isH264 && !existingIsH264) {
+            // Always replace non-H.264 with H.264
+            isBetter = true;
+          } else if (isH264 === existingIsH264) {
+             // Prefer MP4 container and higher bitrate if codecs match
+             if ((f.ext === 'mp4' && existingFormat.ext !== 'mp4') || (f.tbr || 0) > (existingFormat.tbr || 0)) {
+                 isBetter = true;
+             }
+          }
 
           if (isBetter) {
             qualityMap.set(qualityLabel, {
@@ -161,12 +176,13 @@ export const getTwitterMediaInfo = async (req, res) => {
               hasAudio: f.acodec !== 'none',
               url: f.url,
               fps: f.fps,
-              mimeType: `video/${f.ext}`,
+              mimeType: `video/mp4`, // Force mp4 mimetype for client
               contentLength: f.filesize,
               width: f.width,
               height: f.height,
               tbr: f.tbr || 0,
-              ext: f.ext
+              ext: f.ext,
+              vcodec: f.vcodec
             });
           }
         });
@@ -275,6 +291,7 @@ export const downloadTwitterVideo = async (req, res) => {
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-warnings',
+      '-S', 'vcodec:h264,res,acodec:m4a', // Prefer H.264
       '--output', tempFilePath
     ];
 
