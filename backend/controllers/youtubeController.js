@@ -1,7 +1,6 @@
 import { spawn } from 'child_process';
-import fs from 'fs';
+import ffmpegStatic from 'ffmpeg-static';
 import path from 'path';
-import os from 'os';
 import { fileURLToPath } from 'url';
 
 // Define __dirname for ES modules
@@ -258,16 +257,19 @@ export const mergeDownloadGet = downloadVideo;
 export const downloadAudioGet = async (req, res) => {
   try {
     const { url, bitrate, title } = req.query;
-    const cleanTitle = safeFilename(title || 'youtube_audio', '', 'm4a');
+    const targetBitrate = parseInt(bitrate) || 128;
+    const cleanTitle = safeFilename(title || 'youtube_audio', `${targetBitrate}kbps`, 'mp3');
 
     res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
-    res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Content-Type', 'audio/mpeg');
 
-    // Use format selector that works even when pure audio doesn't exist
-    // Falls back to smallest video+audio format (still playable as audio)
+    // Extract audio and convert to MP3, stream to stdout
     const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
-      '-f', 'bestaudio/b[filesize<50M]/worst',
+      '--extract-audio',
+      '--audio-format', 'mp3',
+      '--audio-quality', `${targetBitrate}k`,
+      '--ffmpeg-location', ffmpegStatic,
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
