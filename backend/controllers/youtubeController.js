@@ -1,8 +1,6 @@
 import { spawn } from 'child_process';
 import ffmpegStatic from 'ffmpeg-static';
-import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { fileURLToPath } from 'url';
 
 // Define __dirname for ES modules
@@ -181,68 +179,55 @@ export const getYoutubeVideoInfo = async (req, res) => {
 };
 
 export const downloadVideo = async (req, res) => {
-  let tempFilePath = null;
   try {
     const { url, itag, format_id, title } = req.method === 'POST' ? req.body : req.query;
     const selectedFormat = itag || format_id;
     const cleanTitle = safeFilename(title || 'youtube_video', '', 'mp4');
 
-    const tempFileName = `yt_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
-    tempFilePath = path.join(os.tmpdir(), tempFileName);
-
-    console.log(`Downloading YouTube video to temp file: ${tempFilePath}`);
+    console.log(`Streaming YouTube video: ${cleanTitle}`);
 
     const args = [
       url,
       '--cookies', COOKIES_PATH,
-      '-S', 'vcodec:h264,res,acodec:m4a', // Prefer H.264
-      '--output', tempFilePath,
+      '-S', 'vcodec:h264,res,acodec:m4a',
       '--no-check-certificates',
-      '--no-playlist'
+      '--no-playlist',
+      '-o', '-'  // Output to stdout for streaming
     ];
 
     if (selectedFormat && selectedFormat !== 'best') {
        args.splice(1, 0, '-f', selectedFormat);
     }
 
-    const process = spawn(YT_DLP_PATH, args);
-    let stderrData = '';
-    let lastProgressLog = Date.now();
-    
-    process.stderr.on('data', d => {
-      stderrData += d.toString();
-      // Log progress every 5 seconds to show download is active
-      const now = Date.now();
-      if (now - lastProgressLog > 5000) {
-        console.log(`YouTube download in progress for: ${title || url}`);
-        lastProgressLog = now;
+    // Set headers for immediate download
+    res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
+    res.setHeader('Content-Type', 'video/mp4');
+
+    const ytdlpProcess = spawn(YT_DLP_PATH, args);
+
+    // Stream directly to response - downloads start immediately
+    ytdlpProcess.stdout.pipe(res);
+
+    ytdlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+
+    ytdlpProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error('Download failed with code:', code);
+        if (!res.headersSent) res.status(500).json({ error: 'Download failed.' });
+      } else {
+        console.log('YouTube download streaming completed');
       }
     });
 
-    process.on('close', (code) => {
-      if (code !== 0) {
-        console.error('Download failed with code:', code, stderrData);
-        if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
-        if (!res.headersSent) return res.status(500).json({ error: 'Download failed.' });
-        return;
-      }
-      
-      console.log(`YouTube download completed: ${tempFilePath}`);
-      if (fs.existsSync(tempFilePath)) {
-        const stats = fs.statSync(tempFilePath);
-        console.log(`File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-         res.download(tempFilePath, cleanTitle, (err) => {
-           if (err) console.error('Error sending file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
-      } else {
-        if (!res.headersSent) res.status(500).json({ error: 'File not found.' });
-      }
+    ytdlpProcess.on('error', (err) => {
+      console.error('Failed to start yt-dlp:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to start download.' });
     });
 
   } catch (error) {
     console.error('YouTube Download Error:', error);
-    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
     if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
   }
 };
@@ -253,50 +238,50 @@ export const downloadVideoGet = downloadVideo;
 export const mergeDownloadGet = downloadVideo;
 
 export const downloadAudioGet = async (req, res) => {
-  let tempFilePath = null;
   try {
     const { url, bitrate, title } = req.query;
     const targetBitrate = parseInt(bitrate) || 128;
     const cleanTitle = safeFilename(title || 'youtube_audio', `${targetBitrate}kbps`, 'mp3');
 
-    const tempFileName = `yt_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
-    tempFilePath = path.join(os.tmpdir(), tempFileName);
+    console.log(`Streaming YouTube audio: ${cleanTitle}`);
 
-    console.log(`Downloading YouTube audio to: ${tempFilePath}`);
+    res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
+    res.setHeader('Content-Type', 'audio/mpeg');
 
-    const process = spawn(YT_DLP_PATH, [
+    const ytdlpProcess = spawn(YT_DLP_PATH, [
       url,
       '--extract-audio',
       '--audio-format', 'mp3',
       '--audio-quality', `${targetBitrate}k`,
       '--ffmpeg-location', ffmpegStatic,
-      '--output', tempFilePath,
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
-      '--no-playlist'
+      '--no-playlist',
+      '-o', '-'
     ]);
 
-    process.on('close', (code) => {
+    ytdlpProcess.stdout.pipe(res);
+
+    ytdlpProcess.stderr.on('data', (data) => {
+      console.error('yt-dlp stderr:', data.toString());
+    });
+
+    ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
         console.error('Audio download failed with code:', code);
-        if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
-        if (!res.headersSent) return res.status(500).json({ error: 'Audio download failed.' });
-        return;
-      }
-      
-      if (fs.existsSync(tempFilePath)) {
-         res.download(tempFilePath, cleanTitle, (err) => {
-           if (err) console.error('Error sending audio file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
+        if (!res.headersSent) res.status(500).json({ error: 'Audio download failed.' });
       } else {
-        if (!res.headersSent) res.status(500).json({ error: 'Audio file not found.' });
+        console.log('YouTube audio streaming completed');
       }
+    });
+
+    ytdlpProcess.on('error', (err) => {
+      console.error('Failed to start yt-dlp:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to start audio download.' });
     });
 
   } catch (error) {
     console.error('YouTube Audio Error:', error);
-    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
     if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
   }
 };

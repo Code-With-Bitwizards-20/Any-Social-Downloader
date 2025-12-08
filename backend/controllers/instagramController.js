@@ -249,8 +249,8 @@ export const getInstagramMediaInfo = async (req, res) => {
               format = {
                 ...originalFormat,
                 qualityLabel: quality,
-                // Use a more generic format selector for fallback with unique ID
-                itag: bestAudio ? `best[height<=${targetHeight}]+bestaudio/best-${qualityIndex}` : `best[height<=${targetHeight}]/best-${qualityIndex}`
+                // Use a generic format selector for fallback
+                itag: bestAudio ? `best[height<=${targetHeight}]+bestaudio/best` : `best[height<=${targetHeight}]/best`
               };
             }
           }
