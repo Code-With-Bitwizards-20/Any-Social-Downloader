@@ -209,6 +209,9 @@ export const downloadVideo = async (req, res) => {
       '-S', 'vcodec:h264,res,acodec:m4a',
       '--no-check-certificates',
       '--no-playlist',
+      '--concurrent-fragments', '5',
+      '--buffer-size', '32M',
+      '--http-chunk-size', '10M',
       '-o', '-'  // Output to stdout for streaming
     ];
 
@@ -270,6 +273,9 @@ export const downloadAudioGet = async (req, res) => {
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-playlist',
+      '--concurrent-fragments', '5',
+      '--buffer-size', '32M',
+      '--http-chunk-size', '10M',
       '-o', '-'
     ]);
 
