@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
-const COOKIES_PATH = path.join(__dirname, '../cookies-fb/cookies.txt');
+const COOKIES_PATH = path.join(__dirname, '../cookies-yt/cookies.txt');
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {

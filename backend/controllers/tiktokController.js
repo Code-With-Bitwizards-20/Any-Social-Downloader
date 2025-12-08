@@ -12,8 +12,8 @@ const __dirname = path.dirname(__filename);
 // Path to yt-dlp executable
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 
-// Path to cookies file (shared or TikTok specific)
-const COOKIES_PATH = path.join(__dirname, '../cookies-fb/cookies.txt'); // Reusing existing cookies path if applicable
+// Path to cookies file (TikTok specific)
+const COOKIES_PATH = path.join(__dirname, '../cookies-tk/cookies.txt');
 
 // Utility function to create safe filenames
 const safeFilename = (title, suffix = '', ext = 'mp4') => {

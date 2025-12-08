@@ -291,18 +291,27 @@ export const downloadTwitterVideo = async (req, res) => {
       '--cookies', COOKIES_PATH,
       '--no-check-certificates',
       '--no-warnings',
-      '-S', 'vcodec:h264,res,acodec:m4a', // Prefer H.264
       '--output', tempFilePath
     ];
 
+    // Ensure we get formats with audio by using explicit format selection
     if (selectedFormatId) {
       // Handle both specific format IDs and generic quality selectors
       if (selectedFormatId.includes('[') || selectedFormatId.includes('best') || selectedFormatId.includes('worst') || selectedFormatId.includes('/')) {
-        args.splice(1, 0, '--format', selectedFormatId);
+        // Use the selector as-is but ensure audio is included
+        args.splice(1, 0, '--format', `${selectedFormatId}+bestaudio/best`);
       } else {
-        args.splice(1, 0, '--format', selectedFormatId);
+        // Specific format ID - try to merge with audio, fallback to format with audio
+        args.splice(1, 0, '--format', `${selectedFormatId}+bestaudio/${selectedFormatId}/best`);
       }
+    } else {
+      // Default: prefer merged video+audio, fallback to best with audio
+      args.splice(1, 0, '--format', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
     }
+    
+    // Add ffmpeg location for merging if needed
+    args.splice(1, 0, '--ffmpeg-location', ffmpegStatic);
+    args.splice(1, 0, '--merge-output-format', 'mp4');
 
     const ytdlpProcess = spawn(YT_DLP_PATH, args);
 
