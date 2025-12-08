@@ -148,15 +148,32 @@ export const getTikTokVideoInfo = async (req, res) => {
     });
 
     const standardQualities = ['144p', '240p', '360p', '480p', '720p', '1080p'];
-    standardQualities.forEach(quality => {
-      const format = qualityMap.get(quality);
-      if (format) {
-        if (format.merge && format.vItag && format.aItag) {
-          format.itag = `${format.vItag}+${format.aItag}`;
-          format.hasAudio = true;
-        }
-        videoFormats.push(format);
+    standardQualities.forEach((quality, idx) => {
+      let format = qualityMap.get(quality);
+      
+      // If exact quality not available, create a fallback format using yt-dlp's intelligent selection
+      if (!format) {
+        const targetHeight = parseInt(quality);
+        format = {
+          itag: `best[height<=${targetHeight}]/worst[height>=${targetHeight}]/best`,
+          qualityLabel: quality,
+          quality: targetHeight,
+          hasAudio: true,
+          merge: false,
+          fps: 30,
+          mimeType: 'video/mp4',
+          contentLength: null,
+          width: null,
+          height: targetHeight,
+          tbr: null
+        };
       }
+      
+      if (format.merge && format.vItag && format.aItag) {
+        format.itag = `${format.vItag}+${format.aItag}`;
+        format.hasAudio = true;
+      }
+      videoFormats.push(format);
     });
 
     videoFormats.sort((a, b) => {

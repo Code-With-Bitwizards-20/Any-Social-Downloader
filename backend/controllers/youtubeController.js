@@ -207,7 +207,17 @@ export const downloadVideo = async (req, res) => {
 
     const process = spawn(YT_DLP_PATH, args);
     let stderrData = '';
-    process.stderr.on('data', d => stderrData += d.toString());
+    let lastProgressLog = Date.now();
+    
+    process.stderr.on('data', d => {
+      stderrData += d.toString();
+      // Log progress every 5 seconds to show download is active
+      const now = Date.now();
+      if (now - lastProgressLog > 5000) {
+        console.log(`YouTube download in progress for: ${title || url}`);
+        lastProgressLog = now;
+      }
+    });
 
     process.on('close', (code) => {
       if (code !== 0) {
@@ -217,7 +227,10 @@ export const downloadVideo = async (req, res) => {
         return;
       }
       
+      console.log(`YouTube download completed: ${tempFilePath}`);
       if (fs.existsSync(tempFilePath)) {
+        const stats = fs.statSync(tempFilePath);
+        console.log(`File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
          res.download(tempFilePath, cleanTitle, (err) => {
            if (err) console.error('Error sending file:', err);
            try { fs.unlinkSync(tempFilePath); } catch (e) {}

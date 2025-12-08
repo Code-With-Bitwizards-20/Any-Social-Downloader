@@ -158,14 +158,36 @@ export const getTwitterMediaInfo = async (req, res) => {
 
           if (!existingFormat) {
             isBetter = true;
-          } else if (isH264 && !existingIsH264) {
-            // Always replace non-H.264 with H.264
-            isBetter = true;
-          } else if (isH264 === existingIsH264) {
-             // Prefer MP4 container and higher bitrate if codecs match
-             if ((f.ext === 'mp4' && existingFormat.ext !== 'mp4') || (f.tbr || 0) > (existingFormat.tbr || 0)) {
-                 isBetter = true;
-             }
+          } else {
+            // Strongly prefer formats WITH audio over video-only
+            const hasAudio = f.acodec !== 'none';
+            const existingHasAudio = existingFormat.hasAudio;
+            
+            if (hasAudio && !existingHasAudio) {
+              // Always prefer audio over no audio
+              isBetter = true;
+            } else if (hasAudio === existingHasAudio) {
+              // If both have same audio status, prefer HTTP over HLS (HTTP is more reliable)
+              const isHttp = f.protocol?.includes('http') || f.format_id?.includes('http');
+              const existingIsHttp = existingFormat.itag?.includes('http');
+              
+              if (isHttp && !existingIsHttp) {
+                isBetter = true;
+              } else if (isHttp === existingIsHttp) {
+                // Same protocol - prefer H.264 codec
+                const isH264 = f.vcodec && (f.vcodec.includes('avc1') || f.vcodec.includes('h264'));
+                const existingIsH264 = existingFormat.vcodec && (existingFormat.vcodec.includes('avc1') || existingFormat.vcodec.includes('h264'));
+                
+                if (isH264 && !existingIsH264) {
+                  isBetter = true;
+                } else if (isH264 === existingIsH264) {
+                  // Prefer MP4 container and higher bitrate
+                  if ((f.ext === 'mp4' && existingFormat.ext !== 'mp4') || (f.tbr || 0) > (existingFormat.tbAudio || 0)) {
+                    isBetter = true;
+                  }
+                }
+              }
+            }
           }
 
           if (isBetter) {
