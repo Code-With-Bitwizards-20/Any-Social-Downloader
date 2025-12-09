@@ -208,6 +208,7 @@ export const getTikTokVideoInfo = async (req, res) => {
 
 export const downloadTikTokVideo = async (req, res) => {
   let tempFilePath = null;
+  let processedFilePath = null;
   try {
     const { url, itag, format_id, title, bitrate } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
@@ -218,8 +219,13 @@ export const downloadTikTokVideo = async (req, res) => {
     }
 
     const cleanTitle = safeFilename(title || 'tiktok_video', '', 'mp4');
-    const tempFileName = `tiktok_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const tempFileName = `tiktok_${timestamp}_${randomStr}.mp4`;
+    const processedFileName = `tiktok_ios_${timestamp}_${randomStr}.mp4`;
+
     tempFilePath = path.join(os.tmpdir(), tempFileName);
+    processedFilePath = path.join(os.tmpdir(), processedFileName);
 
     console.log(`Downloading TikTok video to temp file: ${tempFilePath}`);
 
@@ -246,11 +252,49 @@ export const downloadTikTokVideo = async (req, res) => {
         return;
       }
       
+      console.log('TikTok download completed locally. Starting iOS compatibility transcoding...');
+
       if (fs.existsSync(tempFilePath)) {
-         res.download(tempFilePath, cleanTitle, (err) => {
-           if (err) console.error('Error sending file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
+          // Process with ffmpeg
+          const ffmpegArgs = [
+            '-i', tempFilePath,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'main',
+            '-level:v', '4.0',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y',
+            processedFilePath
+          ];
+  
+          const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+          
+          ffmpegProcess.on('close', (ffmpegCode) => {
+            if (ffmpegCode !== 0) {
+              console.error('FFmpeg transcoding failed:', ffmpegCode);
+              // Fallback
+              res.download(tempFilePath, cleanTitle, (err) => {
+                if (err) console.error('Error sending file:', err);
+                try { 
+                  fs.unlinkSync(tempFilePath);
+                  if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+                } catch (e) {}
+              });
+              return;
+            }
+  
+            console.log('Transcoding complete. Sending iOS compatible file.');
+            res.download(processedFilePath, cleanTitle, (err) => {
+              if (err) console.error('Error sending file:', err);
+              try { 
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+              } catch (e) {}
+            });
+          });
       } else {
         if (!res.headersSent) res.status(500).json({ error: 'File not found.' });
       }
@@ -259,18 +303,25 @@ export const downloadTikTokVideo = async (req, res) => {
   } catch (error) {
     console.error('TikTok Download Error:', error);
     if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    if (processedFilePath && fs.existsSync(processedFilePath)) try { fs.unlinkSync(processedFilePath); } catch (e) {}
     if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 export const mergeTikTokVideoAudio = (req, res) => {
   let tempFilePath = null;
+  let processedFilePath = null;
   try {
     const { url, vItag, aItag, title } = req.query;
     const cleanTitle = safeFilename(title || 'tiktok_video', '', 'mp4');
     
-    const tempFileName = `tiktok_merge_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const tempFileName = `tiktok_merge_${timestamp}_${randomStr}.mp4`;
+    const processedFileName = `tiktok_merge_ios_${timestamp}_${randomStr}.mp4`;
+
     tempFilePath = path.join(os.tmpdir(), tempFileName);
+    processedFilePath = path.join(os.tmpdir(), processedFileName);
     
     console.log(`Merging TikTok video+audio to: ${tempFilePath}`);
     
@@ -296,11 +347,49 @@ export const mergeTikTokVideoAudio = (req, res) => {
         return;
       }
       
+      console.log('TikTok merge completed locally. Starting iOS compatibility transcoding...');
+
       if (fs.existsSync(tempFilePath)) {
-         res.download(tempFilePath, cleanTitle, (err) => {
-           if (err) console.error('Error sending merged file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
+          // Process with ffmpeg
+          const ffmpegArgs = [
+            '-i', tempFilePath,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'main',
+            '-level:v', '4.0',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y',
+            processedFilePath
+          ];
+  
+          const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+          
+          ffmpegProcess.on('close', (ffmpegCode) => {
+            if (ffmpegCode !== 0) {
+              console.error('FFmpeg transcoding failed:', ffmpegCode);
+              // Fallback
+              res.download(tempFilePath, cleanTitle, (err) => {
+                if (err) console.error('Error sending file:', err);
+                try { 
+                  fs.unlinkSync(tempFilePath);
+                  if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+                } catch (e) {}
+              });
+              return;
+            }
+  
+            console.log('Transcoding complete. Sending iOS compatible file.');
+            res.download(processedFilePath, cleanTitle, (err) => {
+              if (err) console.error('Error sending file:', err);
+              try { 
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+              } catch (e) {}
+            });
+          });
       } else {
         if (!res.headersSent) res.status(500).json({ error: 'Merged file not found.' });
       }
@@ -309,6 +398,7 @@ export const mergeTikTokVideoAudio = (req, res) => {
   } catch (error) {
     console.error('TikTok Merge Error:', error);
     if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    if (processedFilePath && fs.existsSync(processedFilePath)) try { fs.unlinkSync(processedFilePath); } catch (e) {}
     if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
   }
 };

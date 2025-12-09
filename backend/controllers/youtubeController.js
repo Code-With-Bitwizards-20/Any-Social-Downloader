@@ -206,12 +206,11 @@ export const downloadVideo = async (req, res) => {
     const args = [
       url,
       '--cookies', COOKIES_PATH,
-      '-S', 'vcodec:h264,res,acodec:m4a',
+      // '-S', 'vcodec:h264,res,acodec:m4a', // ffmpeg will handle transcoding now, so input format matters less
       '--no-check-certificates',
       '--no-playlist',
       '--concurrent-fragments', '5',
-      '--buffer-size', '32M',
-      '--http-chunk-size', '10M',
+      '--buffer-size', '16M',
       '-o', '-'  // Output to stdout for streaming
     ];
 
@@ -219,31 +218,74 @@ export const downloadVideo = async (req, res) => {
        args.splice(1, 0, '-f', selectedFormat);
     }
 
-    // Set headers for immediate download
+    // Set headers for download
     res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}"`);
     res.setHeader('Content-Type', 'video/mp4');
 
     const ytdlpProcess = spawn(YT_DLP_PATH, args);
 
-    // Stream directly to response - downloads start immediately
-    ytdlpProcess.stdout.pipe(res);
+    // Spawn ffmpeg to transcode the stream to iOS compatible format
+    const ffmpegArgs = [
+      '-i', 'pipe:0',             // Read from stdin
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',      // Low CPU usage
+      '-pix_fmt', 'yuv420p',      // iOS Requirement
+      '-profile:v', 'main',
+      '-level:v', '4.0',
+      '-c:a', 'aac',              // iOS Audio Requirement
+      '-b:a', '128k',
+      '-movflags', 'frag_keyframe+empty_moov', // Required for streaming MP4
+      '-f', 'mp4',
+      'pipe:1'                    // Write to stdout
+    ];
 
+    const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+
+    // Pipe yt-dlp -> ffmpeg -> response
+    ytdlpProcess.stdout.pipe(ffmpegProcess.stdin);
+    ffmpegProcess.stdout.pipe(res);
+
+    // Error logging
     ytdlpProcess.stderr.on('data', (data) => {
-      console.error('yt-dlp stderr:', data.toString());
+      // console.error('yt-dlp stderr:', data.toString()); // Optional: reduce noise
+    });
+
+    ffmpegProcess.stderr.on('data', (data) => {
+      // console.error('ffmpeg stderr:', data.toString());
     });
 
     ytdlpProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error('Download failed with code:', code);
-        if (!res.headersSent) res.status(500).json({ error: 'Download failed.' });
+        console.error('yt-dlp process exited with code:', code);
+        // If headers haven't been sent (unlikely if piped), we could send error
+        // But since we are piping, the stream just ends.
       } else {
-        console.log('YouTube download streaming completed');
+        console.log('YouTube download stream fetch completed');
+      }
+    });
+
+    ffmpegProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error('ffmpeg process exited with code:', code);
+      } else {
+        console.log('Transcoding stream completed');
       }
     });
 
     ytdlpProcess.on('error', (err) => {
       console.error('Failed to start yt-dlp:', err);
       if (!res.headersSent) res.status(500).json({ error: 'Failed to start download.' });
+    });
+
+    ffmpegProcess.on('error', (err) => {
+      console.error('Failed to start ffmpeg:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to start transcoding.' });
+    });
+
+    // Handle client disconnect
+    req.on('close', () => {
+      ytdlpProcess.kill();
+      ffmpegProcess.kill();
     });
 
   } catch (error) {

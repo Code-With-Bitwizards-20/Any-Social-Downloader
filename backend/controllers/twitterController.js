@@ -292,6 +292,7 @@ export const getTwitterMediaInfo = async (req, res) => {
  */
 export const downloadTwitterVideo = async (req, res) => {
   let tempFilePath = null;
+  let processedFilePath = null;
   try {
     const { url, itag, format_id, title } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
@@ -303,8 +304,13 @@ export const downloadTwitterVideo = async (req, res) => {
     }
 
     const cleanTitle = safeFilename(title || 'twitter_media', '', 'mp4');
-    const tempFileName = `twitter_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const tempFileName = `twitter_${timestamp}_${randomStr}.mp4`;
+    const processedFileName = `twitter_ios_${timestamp}_${randomStr}.mp4`;
+    
     tempFilePath = path.join(os.tmpdir(), tempFileName);
+    processedFilePath = path.join(os.tmpdir(), processedFileName);
 
     console.log(`Downloading Twitter video to temp file: ${tempFilePath}`);
 
@@ -359,22 +365,59 @@ export const downloadTwitterVideo = async (req, res) => {
         return;
       }
 
-      console.log('Twitter download completed locally.');
+      console.log('Twitter download completed locally. Starting iOS compatibility transcoding...');
 
       if (fs.existsSync(tempFilePath)) {
-         res.download(tempFilePath, cleanTitle, (err) => {
-           if (err) {
-             console.error('Error sending file:', err);
-             if (!res.headersSent) res.status(500).send('Error downloading file');
-           }
-           
-           // Cleanup temp file
-           try {
-             fs.unlinkSync(tempFilePath);
-           } catch (unlinkErr) {
-             console.error('Failed to delete temp file:', unlinkErr);
-           }
-         });
+        // Process with ffmpeg for iOS compatibility (H.264 + yuv420p + AAC)
+        const ffmpegArgs = [
+          '-i', tempFilePath,
+          '-c:v', 'libx264',
+          '-preset', 'veryfast',  // Fast encoding
+          '-pix_fmt', 'yuv420p',  // Critical for iOS
+          '-profile:v', 'main',
+          '-level:v', '4.0',
+          '-c:a', 'aac',          // Ensure AAC audio
+          '-b:a', '128k',
+          '-movflags', '+faststart', // Optimize for web playback
+          '-y',
+          processedFilePath
+        ];
+
+        const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+        
+        ffmpegProcess.on('close', (ffmpegCode) => {
+          if (ffmpegCode !== 0) {
+            console.error('FFmpeg transcoding failed with code:', ffmpegCode);
+            // Fallback to original file if transcode fails
+            console.warn('Falling back to original file');
+            res.download(tempFilePath, cleanTitle, (err) => {
+              if (err) console.error('Error sending file:', err);
+              try { 
+                fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+              } catch (e) {}
+            });
+            return;
+          }
+
+          console.log('Transcoding complete. Sending iOS compatible file.');
+          
+          res.download(processedFilePath, cleanTitle, (err) => {
+            if (err) {
+              console.error('Error sending file:', err);
+              if (!res.headersSent) res.status(500).send('Error downloading file');
+            }
+            
+            // Cleanup all temp files
+            try {
+              if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+              if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+            } catch (unlinkErr) {
+              console.error('Failed to delete temp files:', unlinkErr);
+            }
+          });
+        });
+
       } else {
         console.error('Temp file not found after success code:', tempFilePath);
         if (!res.headersSent) res.status(500).json({ error: 'Downloaded file not found.' });
@@ -391,9 +434,8 @@ export const downloadTwitterVideo = async (req, res) => {
 
   } catch (error) {
     console.error('Twitter Download Error:', error);
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch (e) {}
-    }
+    if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    if (processedFilePath && fs.existsSync(processedFilePath)) try { fs.unlinkSync(processedFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',

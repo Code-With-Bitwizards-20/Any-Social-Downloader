@@ -299,6 +299,7 @@ export const getInstagramMediaInfo = async (req, res) => {
 
 export const downloadInstagramVideo = async (req, res) => {
   let tempFilePath = null;
+  let processedFilePath = null;
   try {
     const { url, itag, format_id, title, bitrate } = req.method === 'POST' ? req.body : req.query;
     const selectedFormatId = itag || format_id;
@@ -320,8 +321,13 @@ export const downloadInstagramVideo = async (req, res) => {
     const filename = safeFilename(title || 'instagram_media', '', 'mp4');
     
     // Temp file for downloading
-    const tempFileName = `insta_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const tempFileName = `insta_${timestamp}_${randomStr}.mp4`;
+    const processedFileName = `insta_ios_${timestamp}_${randomStr}.mp4`;
+
     tempFilePath = path.join(os.tmpdir(), tempFileName);
+    processedFilePath = path.join(os.tmpdir(), processedFileName); // For ffmpeg output
     
     console.log(`Downloading Instagram video to temp file: ${tempFilePath}`);
 
@@ -361,13 +367,51 @@ export const downloadInstagramVideo = async (req, res) => {
         return;
       }
       
-      console.log('Instagram download completed localy.');
+      console.log('Instagram download completed locally. Starting iOS compatibility transcoding...');
       
       if (fs.existsSync(tempFilePath)) {
-         res.download(tempFilePath, filename, (err) => {
-           if (err) console.error('Error sending file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
+          // Process with ffmpeg for iOS compatibility
+          const ffmpegArgs = [
+            '-i', tempFilePath,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'main',
+            '-level:v', '4.0',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y',
+            processedFilePath
+          ];
+  
+          const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+          
+          ffmpegProcess.on('close', (ffmpegCode) => {
+            if (ffmpegCode !== 0) {
+              console.error('FFmpeg transcoding failed:', ffmpegCode);
+              // Fallback
+              res.download(tempFilePath, filename, (err) => {
+                if (err) console.error('Error sending file:', err);
+                try { 
+                  fs.unlinkSync(tempFilePath);
+                  if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+                } catch (e) {}
+              });
+              return;
+            }
+  
+            console.log('Transcoding complete. Sending iOS compatible file.');
+            res.download(processedFilePath, filename, (err) => {
+              if (err) {
+                  console.error('Error sending file:', err);
+              }
+              try { 
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+              } catch (e) {}
+            });
+          });
       } else {
         if (!res.headersSent) res.status(500).json({ error: 'File not found.' });
       }
@@ -376,6 +420,7 @@ export const downloadInstagramVideo = async (req, res) => {
   } catch (error) {
     console.error('Instagram Download Error:', error);
     if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    if (processedFilePath && fs.existsSync(processedFilePath)) try { fs.unlinkSync(processedFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -387,6 +432,7 @@ export const downloadInstagramVideo = async (req, res) => {
 
 export const mergeInstagramVideoAudio = async (req, res) => {
   let tempFilePath = null;
+  let processedFilePath = null;
   try {
     const { url, vItag, aItag, title } = req.query;
     const cleanTitle = safeFilename(title || 'instagram_video', '', 'mp4');
@@ -394,9 +440,14 @@ export const mergeInstagramVideoAudio = async (req, res) => {
     console.log(`Merging Instagram video+audio: vItag=${vItag}, aItag=${aItag}`);
 
     // Create a temporary file path
-    const tempFileName = `insta_merge_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const tempFileName = `insta_merge_${timestamp}_${randomStr}.mp4`;
+    const processedFileName = `insta_merge_ios_${timestamp}_${randomStr}.mp4`;
+
     tempFilePath = path.join(os.tmpdir(), tempFileName);
-    
+    processedFilePath = path.join(os.tmpdir(), processedFileName);
+
     console.log(`Downloading and merging to temp file: ${tempFilePath}`);
 
     // Use yt-dlp to download and merge to a file properly
@@ -434,15 +485,51 @@ export const mergeInstagramVideoAudio = async (req, res) => {
         return;
       }
 
-      console.log('Download and merge completed locally.');
+      console.log('Download and merge completed locally. Starting iOS compatibility transcoding...');
 
       if (fs.existsSync(tempFilePath)) {
-         // Send the file to the user
-         res.download(tempFilePath, cleanTitle, (err) => {
-           // Callback after download completes or fails
-           if (err) console.error('Error sending file:', err);
-           try { fs.unlinkSync(tempFilePath); } catch (e) {}
-         });
+          // Process with ffmpeg
+          const ffmpegArgs = [
+            '-i', tempFilePath,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'main',
+            '-level:v', '4.0',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y',
+            processedFilePath
+          ];
+  
+          const ffmpegProcess = spawn(ffmpegStatic, ffmpegArgs);
+          
+          ffmpegProcess.on('close', (ffmpegCode) => {
+            if (ffmpegCode !== 0) {
+              console.error('FFmpeg transcoding failed:', ffmpegCode);
+              // Fallback
+              res.download(tempFilePath, cleanTitle, (err) => {
+                if (err) console.error('Error sending file:', err);
+                try { 
+                  fs.unlinkSync(tempFilePath);
+                  if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+                } catch (e) {}
+              });
+              return;
+            }
+  
+            console.log('Transcoding complete. Sending iOS compatible file.');
+            res.download(processedFilePath, cleanTitle, (err) => {
+              if (err) {
+                  console.error('Error sending file:', err);
+              }
+              try { 
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(processedFilePath)) fs.unlinkSync(processedFilePath);
+              } catch (e) {}
+            });
+          });
       } else {
         console.error('Temp file not found after success code:', tempFilePath);
         if (!res.headersSent) res.status(500).json({ error: 'Merged file not found.' });
@@ -457,6 +544,7 @@ export const mergeInstagramVideoAudio = async (req, res) => {
   } catch (error) {
     console.error('Instagram Merge Error:', error);
     if (tempFilePath && fs.existsSync(tempFilePath)) try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    if (processedFilePath && fs.existsSync(processedFilePath)) try { fs.unlinkSync(processedFilePath); } catch (e) {}
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
